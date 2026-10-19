@@ -1,4 +1,9 @@
-"""Gemini CLI model quotas, read with the Google login Gemini CLI already holds."""
+"""Gemini CLI model quotas, read with the Google login Gemini CLI already holds.
+
+Since 2026-06-18 only Gemini Code Assist Standard and Enterprise subscriptions can sign Gemini CLI
+in with Google; individual, Google AI Pro and Ultra accounts moved to Antigravity, and a Gemini API
+key has no quota to read.
+"""
 
 import json
 import os
@@ -59,7 +64,10 @@ def auth_type():
 def read_credentials():
     kind = auth_type()
     if kind != "oauth-personal":
-        raise ExpectedUnavailable(f"Quota needs a Google login; Gemini CLI uses {AUTH_LABELS.get(kind or '', kind or 'no login')}")
+        raise ExpectedUnavailable(
+            f"Quota needs a Google login; Gemini CLI uses {AUTH_LABELS.get(kind or '', kind or 'no login')}. "
+            "Google ended Login with Google for individual, Google AI Pro and Ultra accounts on 2026-06-18; "
+            "their quota is now Antigravity's, which agy-usage reports")
     credentials = files.read_json(oauth_file())
     if not credentials:
         raise RuntimeError(f"Gemini CLI is not signed in: no credentials at {oauth_file()}")
