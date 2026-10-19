@@ -13,6 +13,10 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.optional-dependencies]
+# DeepSeek Harness keeps its credentials in YAML.
+deepseek = ["pyyaml>=6.0.3"]
+
 [project.urls]
 Homepage = "https://github.com/wakamex/clanker-usage"
 Source = "https://github.com/wakamex/clanker-usage"
@@ -25,3 +29,7 @@ packages = ["src/clanker_usage"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests/test_core.py", "/tests/test_zcode.py", "/tests/test_install.py", "/build_wrappers.py", "/README.md", "/LICENSE"]
+
+[dependency-groups]
+# The tests cover every provider, including DeepSeek's YAML credential store.
+dev = ["pyyaml>=6.0.3"]

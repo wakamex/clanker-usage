@@ -31,9 +31,11 @@ class Home(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
-        env = patch.dict(os.environ, {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "config"),
-                                      "XDG_CACHE_HOME": str(root / "cache"), "XDG_STATE_HOME": str(root / "state"),
-                                      "XDG_DATA_HOME": str(root / "data"), "ZAI_API_KEY": "synthetic-key"})
+        # Only PATH survives, so no real credential variable can reach a provider.
+        env = patch.dict(os.environ, {"PATH": os.environ.get("PATH", ""), "HOME": str(root / "home"),
+                                      "XDG_CONFIG_HOME": str(root / "config"), "XDG_CACHE_HOME": str(root / "cache"),
+                                      "XDG_STATE_HOME": str(root / "state"), "XDG_DATA_HOME": str(root / "data"),
+                                      "ZAI_API_KEY": "synthetic-key"}, clear=True)
         env.start()
         self.addCleanup(env.stop)
 
@@ -121,7 +123,7 @@ class StandardCommandTests(Home):
         data = json.loads(out)
         self.assertEqual(status, 0)
         self.assertEqual(set(data), {"schema", "provider", "account", "plan", "status", "error", "retrieved_at",
-                                     "windows", "details"})
+                                     "windows", "balance", "details"})
         self.assertEqual((data["schema"], data["provider"], data["status"]), ("usage-v1", "zcode", "live"))
         self.assertEqual(data, {**json.loads(paths.cache_file("zcode", zcode.account()).read_text()), "status": "live"})
 
@@ -167,7 +169,8 @@ class StandardCommandTests(Home):
         with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["--json"]), 0)
         statuses = {record["provider"]: record["status"] for record in json.loads(out.getvalue())}
-        self.assertEqual(statuses, {"cursor": "unavailable", "devin": "unavailable", "zcode": "cached"})
+        self.assertEqual(statuses, {"cursor": "unavailable", "deepseek": "unavailable", "devin": "unavailable",
+                                    "zcode": "cached"})
 
     def test_refresh_fails_without_a_key(self):
         with patch.dict(os.environ, {"ZAI_API_KEY": ""}):

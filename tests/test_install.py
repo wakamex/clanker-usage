@@ -41,11 +41,14 @@ class InstalledPackageTests(unittest.TestCase):
             with self.subTest(package=package):
                 venv = Path(self.temp.name) / f"venv-{package}"
                 subprocess.run(["uv", "venv", "-q", str(venv)], check=True, capture_output=True)
-                subprocess.run(["uv", "pip", "install", "-q", "--python", str(venv / "bin" / "python"),
-                                "--no-index", "--find-links", str(self.wheels), package], check=True, capture_output=True)
+                # The pin takes this build from the local wheels; dependencies such as PyYAML come from PyPI.
+                subprocess.run(["uv", "--no-config", "pip", "install", "-q", "--python", str(venv / "bin" / "python"),
+                                "--find-links", str(self.wheels), f"{package}=={VERSION}"], check=True, capture_output=True)
                 home = Path(self.temp.name) / f"home-{package}"
-                env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / "config"),
-                           XDG_CACHE_HOME=str(home / "cache"), ZAI_API_KEY="")
+                # Only PATH and a scratch home, so no real credential can make refresh reach a provider.
+                env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(home / "config"),
+                       "XDG_CACHE_HOME": str(home / "cache"), "XDG_STATE_HOME": str(home / "state"),
+                       "XDG_DATA_HOME": str(home / "data")}
                 module = package.replace("-", "_")
                 for command in ([str(venv / "bin" / package)], [str(venv / "bin" / "python"), "-m", module]):
                     result = subprocess.run([*command, "--version"], capture_output=True, text=True, env=env)

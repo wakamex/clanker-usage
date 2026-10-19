@@ -37,7 +37,7 @@ def document(provider, account, status, body=None, error=None, retrieved_at=None
     return {
         "schema": SCHEMA, "provider": provider.NAME, "account": account, "plan": body["plan"],
         "status": status, "error": error, "retrieved_at": retrieved_at, "windows": body["windows"],
-        "details": body["details"],
+        "balance": body.get("balance"), "details": body["details"],
     }
 
 
@@ -105,6 +105,10 @@ def pct(value):
     return f"{round(value, 1):g}%"
 
 
+def money(item):
+    return f"{item['amount']:.2f} {item['currency']}"
+
+
 def status_note(record):
     if record["status"] == "unavailable":
         return f"unavailable: {record['error']}"
@@ -115,6 +119,7 @@ def status_note(record):
 
 def render(provider, record):
     lines = [f"{provider.LABEL}: {record['plan'] or 'no plan'}"]
+    lines += [f"  balance: {money(item)}" for item in record.get("balance") or []]
     for window in record["windows"]:
         line = f"  {window['name']}: {pct(window['used_pct'])} used"
         if window["resets_at"]:
@@ -129,6 +134,7 @@ def statusline(provider, record):
     if record["status"] == "unavailable":
         return f"{provider.LABEL} unavailable"
     parts = [f"{provider.LABEL} {record['plan'] or 'no plan'}"]
+    parts += [money(item) for item in record.get("balance") or []]
     for window in record["windows"]:
         part = f"{window['name']} {pct(window['used_pct'])}"
         until = short_duration(window["resets_at"]) if window["resets_at"] else ""
@@ -144,7 +150,9 @@ def table(records):
     for provider, record in records:
         name = provider.LABEL + (f" {record['account'][:8]}" if record["account"] else "")
         note = status_note(record) or ""
-        if not record["windows"]:
+        for item in record.get("balance") or []:
+            rows.append((name, record["plan"] or "", "balance", money(item), "", note))
+        if not record["windows"] and not record.get("balance"):
             rows.append((name, record["plan"] or "", "-", "", "", note or ("no plan" if not record["plan"] else "")))
         for window in record["windows"]:
             rows.append((name, record["plan"] or "", window["name"], pct(window["used_pct"]),

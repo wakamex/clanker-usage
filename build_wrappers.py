@@ -22,6 +22,11 @@ WRAPPERS = {
         "description": "Cursor plan usage monitor",
         "keywords": ["cursor", "cursor-agent", "usage", "quota", "statusline", "cli"],
     },
+    "deepseek-harness-usage": {
+        "provider": "deepseek", "label": "DeepSeek", "extra": "deepseek",
+        "description": "DeepSeek account balance monitor for DeepSeek Harness",
+        "keywords": ["deepseek", "deepseek-harness", "balance", "usage", "statusline", "cli"],
+    },
     "devin-cli-usage": {
         "provider": "devin", "label": "Devin",
         "description": "Devin quota and credits monitor",
@@ -47,7 +52,7 @@ keywords = [{keywords}]
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["{core}=={version}"]
+dependencies = ["{core}{extras}=={version}"]
 
 [project.urls]
 Homepage = "{repository}"
@@ -105,6 +110,7 @@ def build(name, out_root):
         "repository": REPOSITORY, **spec,
     }
     values["keywords"] = ", ".join(f'"{word}"' for word in spec["keywords"])
+    values["extras"] = f"[{spec['extra']}]" if spec.get("extra") else ""
     out = out_root / name
     if out.exists():
         shutil.rmtree(out)

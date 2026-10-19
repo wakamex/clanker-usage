@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers so far: Cursor (`cursor-cli-usage`), Devin (`devin-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). The other usage monitors in the same family, such as `ccusage`, `codex-cli-usage` and `agy-usage`, move into this codebase and onto the same interface, each keeping its package name and command.
+Providers so far: Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). The other usage monitors in the same family, such as `ccusage`, `codex-cli-usage` and `agy-usage`, move into this codebase and onto the same interface, each keeping its package name and command.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -62,6 +62,7 @@ clanker-usage check               # check every provider
     {"name": "5-hour", "seconds": 18000, "scope": null, "used_pct": 0, "resets_at": null},
     {"name": "weekly", "seconds": 604800, "scope": null, "used_pct": 1, "resets_at": "2026-09-11T03:38:39.995000+00:00"}
   ],
+  "balance": null,
   "details": {"limits": []}
 }
 ```
@@ -74,6 +75,7 @@ clanker-usage check               # check every provider
 | `status` | `live` (fetched now), `cached` (reused under `--max-age`), `stale` (the fetch failed and this is the last cached document) or `unavailable` |
 | `error` | why the fetch failed, for `stale` and `unavailable`; it never contains a credential or response body |
 | `retrieved_at` | when the provider returned this data, in ISO 8601 UTC |
+| `balance` | for an account billed from a balance, one entry per currency with its `currency` and `amount`, which goes below zero when usage outruns the balance; null for accounts with quota windows |
 | `windows` | each quota window: `name`, length in `seconds` (null when the window is not a fixed length), `scope` (the models it covers, or null for the whole account), `used_pct` from 0 to 100, as exact as the provider allows, and `resets_at` in ISO 8601 UTC or null |
 | `details` | what only this provider reports |
 
@@ -103,6 +105,12 @@ It exits with status 1 unless every provider is `ok`, so it can run from a timer
 Sign in with Cursor's CLI (`agent login`) or its IDE. The tool reads the CLI's access token from `~/.config/cursor/auth.json`, and otherwise the IDE's from its `state.vscdb` database, and never refreshes or changes either. The account id is a fingerprint of the token's subject, so it stays the same when Cursor renews the token.
 
 Usage comes from Cursor's `DashboardService/GetCurrentPeriodUsage` and the plan name from `DashboardService/GetPlanInfo`. The one window is the `billing cycle`, with the share of the plan's included usage already used; `details` keeps the spend, the limit and the separate shares for automatic model selection and for API pricing.
+
+## DeepSeek
+
+The tool finds the API key the way DeepSeek Harness does: `DEEPSEEK_API_KEY` in the environment, then Harness's credential store `$DSH_HOME/.credentials.yaml` (`~/.dsh` by default), then a `.env` in the current directory, then `$DSH_HOME/.env`. It parses those files as Harness does, refuses a credential store readable by other users, and never changes them. When Harness routes DeepSeek to a custom endpoint or credential name, the tool will not send that key to DeepSeek; set `CLANKER_USAGE_DEEPSEEK_API_KEY` to the official account key instead. The account id is a fingerprint of the key.
+
+The balance comes from DeepSeek's `GET /user/balance`. DeepSeek reports no quota windows or token history, so the document has a `balance` per currency and `details` keeps the granted and topped-up parts and whether the balance still allows requests. Install `deepseek-harness-usage`, or `clanker-usage[deepseek]`, since reading Harness's YAML store needs [PyYAML](https://pyyaml.org/).
 
 ## Devin
 
