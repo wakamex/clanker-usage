@@ -59,7 +59,7 @@ def no_plan(payload):
 
 
 def fetch():
-    return http.get_json(API_URL, {"Authorization": "Bearer " + get_api_key(), "Accept": "application/json"})
+    return http.request_json(API_URL, {"Authorization": "Bearer " + get_api_key()})
 
 
 def window_name(item):
@@ -92,8 +92,8 @@ def normalize(payload):
             "name": window_name(limit),
             "seconds": int(unit_seconds * limit["number"]) if unit_seconds else None,
             "scope": None,
-            # The API's rounded percentage is kept as reported; details hold the exact credit counts.
-            "used_pct": number(item.get("percentage")),
+            # The API rounds its percentage, so the exact share comes from the credit counts when there is a limit.
+            "used_pct": limit["used"] / limit["limit"] * 100 if limit["limit"] else number(item.get("percentage")),
             "resets_at": datetime.fromtimestamp(number(reset) / 1000, timezone.utc).isoformat() if reset is not None else None,
         })
         limits.append(limit)

@@ -67,6 +67,11 @@ class ShapeTests(unittest.TestCase):
                                   "x": None, "list": [{"unit": 6, "used": 1}]})
         self.assertEqual(shapes.paths(result), shapes.paths(value))
 
+    def test_synthetic_keeps_number_strings_parseable_and_drops_repeats(self):
+        value = {"reset": "1792380670123", "balance": "-52000", "start": "2026-10-01T04:00:00Z", "models": ["a", "b"]}
+        self.assertEqual(shapes.synthetic(value, set()), {"reset": "1000000000000", "balance": "-10000",
+                                                          "start": "2001-01-01T00:00:00Z", "models": ["synthetic"]})
+
 
 class CacheTests(unittest.TestCase):
     def setUp(self):
@@ -104,25 +109,25 @@ class HttpTests(unittest.TestCase):
         target = self.serve(reply(200))
         source = self.serve(reply(302, headers=[("Location", target.url)]))
         with self.assertRaisesRegex(RuntimeError, r"^Usage request failed \(HTTP 302\)$"):
-            http.get_json(source.url, {"Authorization": "Bearer secret"})
+            http.request_json(source.url, {"Authorization": "Bearer secret"})
         self.assertEqual(target.seen, [])
 
     def test_errors_never_echo_the_body_or_the_credential(self):
         server = self.serve(reply(401, b'{"error": "bad token Bearer secret"}'))
         with self.assertRaises(RuntimeError) as caught:
-            http.get_json(server.url, {"Authorization": "Bearer secret"})
+            http.request_json(server.url, {"Authorization": "Bearer secret"})
         self.assertNotIn("secret", str(caught.exception))
         with self.assertRaisesRegex(RuntimeError, "control characters"):
-            http.get_json(server.url, {"Authorization": "Bearer secret\r\nX: y"})
+            http.request_json(server.url, {"Authorization": "Bearer secret\r\nX: y"})
         server = self.serve(reply(200, b"not json secret"))
         with self.assertRaises(ValueError) as caught:
-            http.get_json(server.url, {})
+            http.request_json(server.url, {})
         self.assertNotIn("secret", str(caught.exception))
 
     def test_oversized_bodies_are_rejected(self):
         server = self.serve(reply(200, b" " * (http.LIMIT + 1)))
         with self.assertRaisesRegex(RuntimeError, "exceeds"):
-            http.get_json(server.url, {})
+            http.request_json(server.url, {})
 
 
 class CheckTests(unittest.TestCase):
@@ -166,10 +171,10 @@ class CheckTests(unittest.TestCase):
         self.assertEqual((status, state["result"]), (1, "error"))
         self.assertIn("HTTP 500", out)
         response = copy.deepcopy(RESPONSE)
-        response["data"]["limits"][0]["percentage"] = "1"
+        response["data"]["limits"][0]["currentValue"] = "1"
         status, out, state = self.check(response)
         self.assertEqual(state["result"], "error")
-        self.assertIn("$.data.limits[].percentage: string", out)
+        self.assertIn("$.data.limits[].currentValue: string", out)
 
     def test_record_saves_a_synthetic_copy(self):
         folder = Path(self.temp.name) / "recorded"

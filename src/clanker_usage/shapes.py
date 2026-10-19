@@ -7,6 +7,8 @@ response has that no recorded shape has.
 """
 
 import json
+import re
+from datetime import datetime
 from importlib.resources import files
 
 
@@ -44,7 +46,12 @@ def synthetic(value, keep, key=None):
     if isinstance(value, dict):
         return {name: synthetic(item, keep, name) for name, item in value.items()}
     if isinstance(value, list):
-        return [synthetic(item, keep, key) for item in value]
+        items = []
+        for item in value:
+            # Identical synthetic items, such as a list of model names, add nothing to the shape.
+            if (copy := synthetic(item, keep, key)) not in items:
+                items.append(copy)
+        return items
     if key in keep or value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -52,13 +59,27 @@ def synthetic(value, keep, key=None):
     if isinstance(value, float):
         return 0.5
     if isinstance(value, str):
-        return "synthetic"
+        return _synthetic_string(value)
     raise TypeError(f"unexpected JSON value of type {type(value).__name__}")
+
+
+def _synthetic_string(value):
+    """A fixed string in the same format, so numbers and times sent as strings still parse."""
+    if re.fullmatch(r"-?\d+(\.\d+)?", value):
+        # Same sign and number of digits, such as a Unix time or a signed balance in micros.
+        return re.sub(r"\d", "0", value).replace("0", "1", 1)
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return "synthetic"
+    return "2001-01-01T00:00:00" + ("Z" if value.endswith("Z") else "+00:00")
 
 
 def recorded(provider):
     """The recorded synthetic responses of a provider, by file name."""
     folder = files("clanker_usage") / "shapes" / provider
+    if not folder.is_dir():
+        return {}
     return {item.name: json.loads(item.read_text()) for item in sorted(folder.iterdir(), key=lambda item: item.name)
             if item.name.endswith(".json")}
 

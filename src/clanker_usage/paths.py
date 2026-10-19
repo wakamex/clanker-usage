@@ -18,6 +18,10 @@ def state_file(provider):
     return _base("XDG_STATE_HOME", ".local/state") / "check" / f"{provider}.json"
 
 
+def backoff_file(provider, account):
+    return _base("XDG_STATE_HOME", ".local/state") / "backoff" / provider / f"{account}.json"
+
+
 def config_file():
     return _base("XDG_CONFIG_HOME", ".config") / "config.json"
 

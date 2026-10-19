@@ -55,8 +55,17 @@ def fetch(provider, account):
     return record
 
 
+def backoff_seconds(failures):
+    """How long repeated failures pause fetching: one minute, doubling up to 30 minutes."""
+    return min(60 * 2 ** (failures - 1), 1800)
+
+
 def load(provider, max_age=0):
-    """The provider's document: cached when younger than max_age, else live, else stale or unavailable."""
+    """The provider's document: cached when younger than max_age, else live, else stale or unavailable.
+
+    With max_age above 0, as for a statusline, a recent failure pauses fetching, so repeated
+    prompts during an outage do not each retry. max_age 0 always fetches.
+    """
     try:
         account = provider.account()
     except FETCH_ERRORS as exc:
@@ -64,12 +73,23 @@ def load(provider, max_age=0):
     previous = cached(provider, account)
     if previous and max_age > 0 and cache.is_fresh(previous, max_age):
         return {**previous, "status": "cached"}
-    try:
-        return fetch(provider, account)
-    except FETCH_ERRORS as exc:
-        if previous:
-            return {**previous, "status": "stale", "error": str(exc)}
-        return document(provider, account, "unavailable", error=str(exc))
+    backoff = paths.backoff_file(provider.NAME, account)
+    failure = cache.read_json(backoff) or {}
+    failures = failure.get("failures") if isinstance(failure.get("failures"), int) else 0
+    if max_age > 0 and failures and cache.is_fresh_at(failure, "failed_at", backoff_seconds(failures)):
+        error = str(failure.get("error"))
+    else:
+        try:
+            record = fetch(provider, account)
+        except FETCH_ERRORS as exc:
+            error = str(exc)
+            cache.write_json(backoff, {"failed_at": now(), "failures": failures + 1, "error": error})
+        else:
+            backoff.unlink(missing_ok=True)
+            return record
+    if previous:
+        return {**previous, "status": "stale", "error": error}
+    return document(provider, account, "unavailable", error=error)
 
 
 def short_duration(iso):
@@ -78,6 +98,11 @@ def short_duration(iso):
     if hours <= 0:
         return ""
     return f"{hours / 24:.1f}d" if hours >= 48 else f"{hours:.1f}h"
+
+
+def pct(value):
+    """A share for display, to one decimal place at most; JSON keeps the exact value."""
+    return f"{round(value, 1):g}%"
 
 
 def status_note(record):
@@ -91,7 +116,7 @@ def status_note(record):
 def render(provider, record):
     lines = [f"{provider.LABEL}: {record['plan'] or 'no plan'}"]
     for window in record["windows"]:
-        line = f"  {window['name']}: {window['used_pct']:g}% used"
+        line = f"  {window['name']}: {pct(window['used_pct'])} used"
         if window["resets_at"]:
             reset = datetime.fromisoformat(window["resets_at"]).astimezone()
             line += f", resets {reset:%Y-%m-%d %H:%M %Z}"
@@ -105,7 +130,7 @@ def statusline(provider, record):
         return f"{provider.LABEL} unavailable"
     parts = [f"{provider.LABEL} {record['plan'] or 'no plan'}"]
     for window in record["windows"]:
-        part = f"{window['name']} {window['used_pct']:g}%"
+        part = f"{window['name']} {pct(window['used_pct'])}"
         until = short_duration(window["resets_at"]) if window["resets_at"] else ""
         if until:
             part += f" ({until})"
@@ -122,7 +147,7 @@ def table(records):
         if not record["windows"]:
             rows.append((name, record["plan"] or "", "-", "", "", note or ("no plan" if not record["plan"] else "")))
         for window in record["windows"]:
-            rows.append((name, record["plan"] or "", window["name"], f"{window['used_pct']:g}%",
+            rows.append((name, record["plan"] or "", window["name"], pct(window["used_pct"]),
                          short_duration(window["resets_at"]) if window["resets_at"] else "", note))
     widths = [max(len(row[i]) for row in rows) for i in range(5)]
     return "\n".join(("  ".join(cell.ljust(width) for cell, width in zip(row[:5], widths)) + "  " + row[5]).rstrip()
@@ -218,11 +243,12 @@ def add_provider_commands(parser, provider):
     daemon_parser.add_argument("--interval", type=positive_int, default=provider.INTERVAL, metavar="SECONDS")
     checker = sub.add_parser("check", help="Compare a live response with the recorded response shapes")
     checker.add_argument("--record", metavar="DIR", type=Path, help="also save a synthetic copy of the response in DIR")
-    provider.add_commands(sub)
+    if hasattr(provider, "add_commands"):
+        provider.add_commands(sub)
 
 
 def run_provider(provider, args):
-    if provider.run_command(args):
+    if hasattr(provider, "run_command") and provider.run_command(args):
         return 0
     command = args.command or "status"
     if command == "daemon":

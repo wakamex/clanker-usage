@@ -17,6 +17,16 @@ CORE = "clanker-usage"
 REPOSITORY = "https://github.com/wakamex/clanker-usage"
 
 WRAPPERS = {
+    "cursor-cli-usage": {
+        "provider": "cursor", "label": "Cursor",
+        "description": "Cursor plan usage monitor",
+        "keywords": ["cursor", "cursor-agent", "usage", "quota", "statusline", "cli"],
+    },
+    "devin-cli-usage": {
+        "provider": "devin", "label": "Devin",
+        "description": "Devin quota and credits monitor",
+        "keywords": ["devin", "windsurf", "usage", "quota", "statusline", "cli"],
+    },
     "zcode-cli-usage": {
         "provider": "zcode", "label": "Z.ai Coding Plan",
         "description": "Z.ai Coding Plan quota monitor",

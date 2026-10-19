@@ -39,15 +39,19 @@ def write_json(path, data):
         Path(name).unlink(missing_ok=True)
 
 
-def age(record):
-    """Seconds since the record's retrieved_at, or None when it is missing or malformed."""
+def age(record, key="retrieved_at"):
+    """Seconds since the record's time under key, or None when it is missing or malformed."""
     try:
-        updated = datetime.fromisoformat(record["retrieved_at"])
+        updated = datetime.fromisoformat(record[key])
         return (datetime.now(timezone.utc) - updated).total_seconds()
     except (KeyError, TypeError, ValueError):
         return None
 
 
 def is_fresh(record, max_age):
-    seconds = age(record)
+    return is_fresh_at(record, "retrieved_at", max_age)
+
+
+def is_fresh_at(record, key, max_age):
+    seconds = age(record, key)
     return seconds is not None and 0 <= seconds < max_age

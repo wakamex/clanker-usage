@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Z.ai's Coding Plan is the first provider. The other usage monitors in the same family, such as `ccusage`, `codex-cli-usage` and `agy-usage`, move into this codebase and onto the same interface, each keeping its package name and command.
+Providers so far: Cursor (`cursor-cli-usage`), Devin (`devin-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). The other usage monitors in the same family, such as `ccusage`, `codex-cli-usage` and `agy-usage`, move into this codebase and onto the same interface, each keeping its package name and command.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -74,7 +74,7 @@ clanker-usage check               # check every provider
 | `status` | `live` (fetched now), `cached` (reused under `--max-age`), `stale` (the fetch failed and this is the last cached document) or `unavailable` |
 | `error` | why the fetch failed, for `stale` and `unavailable`; it never contains a credential or response body |
 | `retrieved_at` | when the provider returned this data, in ISO 8601 UTC |
-| `windows` | each quota window: `name`, length in `seconds` (null when the window is not a fixed length), `scope` (the models it covers, or null for the whole account), `used_pct` from 0 to 100, and `resets_at` in ISO 8601 UTC or null |
+| `windows` | each quota window: `name`, length in `seconds` (null when the window is not a fixed length), `scope` (the models it covers, or null for the whole account), `used_pct` from 0 to 100, as exact as the provider allows, and `resets_at` in ISO 8601 UTC or null |
 | `details` | what only this provider reports |
 
 ## Files
@@ -98,6 +98,18 @@ The `XDG_CACHE_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME` variables move them
 
 It exits with status 1 unless every provider is `ok`, so it can run from a timer or CI and notify on failure. Its state file keeps paths and window names but no values. `check --record DIR` also saves a synthetic copy of each live response in `DIR`.
 
+## Cursor
+
+Sign in with Cursor's CLI (`agent login`) or its IDE. The tool reads the CLI's access token from `~/.config/cursor/auth.json`, and otherwise the IDE's from its `state.vscdb` database, and never refreshes or changes either. The account id is a fingerprint of the token's subject, so it stays the same when Cursor renews the token.
+
+Usage comes from Cursor's `DashboardService/GetCurrentPeriodUsage` and the plan name from `DashboardService/GetPlanInfo`. The one window is the `billing cycle`, with the share of the plan's included usage already used; `details` keeps the spend, the limit and the separate shares for automatic model selection and for API pricing.
+
+## Devin
+
+Sign in with the Devin CLI. The tool reads its local API key and server from `~/.local/share/devin/credentials.toml` (under `$XDG_DATA_HOME` when set), sends requests only to that server over HTTPS, and never changes the file. The account id is a fingerprint of the key.
+
+Usage comes from the server's `SeatManagementService/GetUserStatus`. The `daily` and `weekly` windows come from the remaining quota it reports; `details.credits` keeps the prompt, flow and flex credits and the overage balance. The tool keeps only the plan and quota parts of the response, leaving out the account's name, email and model lists.
+
 ## Z.ai Coding Plan
 
 Export `ZAI_API_KEY`, or point the tool at an existing `.env` file once:
@@ -108,7 +120,7 @@ zcode-cli-usage configure --env-file /path/to/.env
 
 Configuration stores only the file path. The tool reads `ZAI_API_KEY` from that file without executing shell code: plain or quoted assignments, optional `export`, and comments work, and shell variable expansion does not. An exported `ZAI_API_KEY` takes precedence. The account id is a fingerprint of the key, since the API names no account.
 
-Quota data comes from `GET https://api.z.ai/api/monitor/usage/quota/limit` with `Authorization: Bearer <ZAI_API_KEY>`. Each quota becomes a window: unit `3` is hours and `6` is weeks, so the current quotas are `5-hour` and `weekly`. `used_pct` is the API's own percentage, which it rounds; `details.limits` keeps each quota's `type`, `unit`, `number` and exact `used`, `limit` and `remaining` credits. An account without an active Coding Plan has a null `plan` and no windows.
+Quota data comes from `GET https://api.z.ai/api/monitor/usage/quota/limit` with `Authorization: Bearer <ZAI_API_KEY>`. Each quota becomes a window: unit `3` is hours and `6` is weeks, so the current quotas are `5-hour` and `weekly`. `used_pct` is computed from the used and total credits, since the API's own percentage is rounded; `details.limits` keeps each quota's `type`, `unit`, `number`, `used`, `limit` and `remaining` credits. An account without an active Coding Plan has a null `plan` and no windows.
 
 ## Background refresh on Linux
 

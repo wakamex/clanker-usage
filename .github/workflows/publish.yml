@@ -30,6 +30,12 @@ jobs:
       - uses: wakamex/release-actions/pypi-publish@stable
       - uses: wakamex/release-actions/pypi-publish@stable
         with:
+          working-directory: dist-wrappers/cursor-cli-usage
+      - uses: wakamex/release-actions/pypi-publish@stable
+        with:
+          working-directory: dist-wrappers/devin-cli-usage
+      - uses: wakamex/release-actions/pypi-publish@stable
+        with:
           working-directory: dist-wrappers/zcode-cli-usage
 
   github-release:

@@ -31,8 +31,9 @@ class Home(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
-        env = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config"), "XDG_CACHE_HOME": str(root / "cache"),
-                                      "XDG_STATE_HOME": str(root / "state"), "ZAI_API_KEY": "synthetic-key"})
+        env = patch.dict(os.environ, {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "config"),
+                                      "XDG_CACHE_HOME": str(root / "cache"), "XDG_STATE_HOME": str(root / "state"),
+                                      "XDG_DATA_HOME": str(root / "data"), "ZAI_API_KEY": "synthetic-key"})
         env.start()
         self.addCleanup(env.stop)
 
@@ -58,7 +59,7 @@ class ZcodeTests(Home):
         self.assertEqual(body["plan"], "lite")
         self.assertEqual(body["windows"], [
             {"name": "5-hour", "seconds": 18000, "scope": None, "used_pct": 0, "resets_at": None},
-            {"name": "weekly", "seconds": 604800, "scope": None, "used_pct": 1,
+            {"name": "weekly", "seconds": 604800, "scope": None, "used_pct": 0.5,
              "resets_at": "2026-09-11T03:38:39.995000+00:00"},
         ])
         self.assertEqual(body["details"]["limits"][1],
@@ -146,22 +147,27 @@ class StandardCommandTests(Home):
     def test_status_and_statusline_text(self):
         status, out, _ = self.run_command()
         self.assertEqual(status, 0)
-        self.assertTrue(out.startswith("Z.ai: lite\n  5-hour: 0% used\n  weekly: 1% used, resets 2026-09-1"), out)
+        self.assertTrue(out.startswith("Z.ai: lite\n  5-hour: 0% used\n  weekly: 0.5% used, resets 2026-09-1"), out)
         status, out, _ = self.run_command("statusline")
         # The synthetic weekly reset has passed, so no time remains to show.
-        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 1%\n")
+        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 0.5%\n")
         status, out, _ = self.run_command("statusline", "--max-age", "0", error=RuntimeError("down"))
-        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 1% (stale)\n")
+        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 0.5% (stale)\n")
 
     def test_the_core_command_alone_shows_every_account(self):
         with patch.object(zcode, "fetch", return_value=RESPONSE), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main([]), 0)
-        header, short, weekly = out.getvalue().splitlines()
-        self.assertTrue(header.startswith("account"))
-        self.assertTrue(short.startswith(f"Z.ai {zcode.account()[:8]}  lite  5-hour"), short)
+        lines = out.getvalue().splitlines()
+        self.assertTrue(lines[0].startswith("account"))
+        zai = [line for line in lines if line.startswith("Z.ai")]
+        self.assertEqual(len(zai), 2)
+        self.assertRegex(zai[0], rf"^Z\.ai {zcode.account()[:8]} +lite +5-hour")
+        # The other providers have no credentials in this scratch home.
+        self.assertTrue(any(line.startswith("Cursor") and "unavailable" in line for line in lines))
         with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["--json"]), 0)
-        self.assertEqual([record["status"] for record in json.loads(out.getvalue())], ["cached"])
+        statuses = {record["provider"]: record["status"] for record in json.loads(out.getvalue())}
+        self.assertEqual(statuses, {"cursor": "unavailable", "devin": "unavailable", "zcode": "cached"})
 
     def test_refresh_fails_without_a_key(self):
         with patch.dict(os.environ, {"ZAI_API_KEY": ""}):
