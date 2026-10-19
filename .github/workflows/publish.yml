@@ -33,6 +33,9 @@ jobs:
           working-directory: dist-wrappers/agy-usage
       - uses: wakamex/release-actions/pypi-publish@stable
         with:
+          working-directory: dist-wrappers/codex-cli-usage
+      - uses: wakamex/release-actions/pypi-publish@stable
+        with:
           working-directory: dist-wrappers/cursor-cli-usage
       - uses: wakamex/release-actions/pypi-publish@stable
         with:

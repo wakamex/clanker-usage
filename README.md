@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers so far: Antigravity (`agy-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Claude Code (`ccusage`) and Codex (`codex-cli-usage`) move into this codebase and onto the same interface next, each keeping its package name and command.
+Providers so far: Antigravity (`agy-usage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Claude Code (`ccusage`) moves into this codebase and onto the same interface next, keeping its package name and command.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -105,6 +105,12 @@ A provider whose login has no quota, such as Gemini CLI on an API key, reports `
 Sign in with the Antigravity CLI, `agy`. The tool reads its Google login from `~/.gemini/antigravity-cli/antigravity-oauth-token`. When agy has left the access token expired, the tool renews it with the OAuth client compiled into `agy` and saves it back, but only if agy has not renewed it meanwhile, so a renewal agy made is never undone. Requests carry the installed agy version, because the quota service leaves out the Gemini group for older clients. The account id is a fingerprint of the Google account in the login's id token.
 
 Quota comes from Google's Code Assist `retrieveUserQuotaSummary`. Each quota group, such as Gemini or Claude and GPT, has a `5-hour` and a `weekly` window, with the group as the window's `scope`; the plan is the paid tier's name, such as Google AI Ultra.
+
+## Codex
+
+Sign in with Codex. The tool asks Codex itself: it starts `codex app-server` and reads `account/rateLimits/read` over its JSON-RPC protocol, so Codex handles its own login and token renewal. When Codex is not installed or does not answer, the tool reads the token Codex saved in `$CODEX_HOME/auth.json` (`~/.codex` by default) and calls the usage API directly; it never renews that token, and rereads it once if Codex renewed it during the request. The account id is a fingerprint of Codex's ChatGPT account id.
+
+Codex's own limits are the `5-hour` and `weekly` windows. Each additional limit, such as one for a single model, adds its windows with the limit's name as their `scope`, and the API's code review limit appears as a `code review` window. `details` keeps the credits balance when the account has credits.
 
 ## Cursor
 

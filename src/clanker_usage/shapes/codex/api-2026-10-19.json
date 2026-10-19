@@ -1,0 +1,37 @@
+{
+  "source": "api",
+  "usage": {
+    "plan_type": "plus",
+    "rate_limit": {
+      "allowed": true,
+      "limit_reached": false,
+      "primary_window": {
+        "used_percent": 1,
+        "limit_window_seconds": 18000,
+        "reset_after_seconds": 1,
+        "reset_at": 1
+      },
+      "secondary_window": {
+        "used_percent": 1,
+        "limit_window_seconds": 604800,
+        "reset_after_seconds": 1,
+        "reset_at": 1
+      }
+    },
+    "additional_rate_limits": null,
+    "code_review_rate_limit": null,
+    "credits": {
+      "has_credits": true,
+      "unlimited": false,
+      "overage_limit_reached": false,
+      "balance": "10000.0000000000",
+      "approx_local_messages": [
+        1
+      ],
+      "approx_cloud_messages": [
+        1
+      ]
+    }
+  },
+  "plan_type": "plus"
+}

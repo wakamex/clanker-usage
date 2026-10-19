@@ -22,6 +22,11 @@ WRAPPERS = {
         "description": "Antigravity quota monitor",
         "keywords": ["antigravity", "agy", "gemini", "usage", "quota", "statusline", "cli"],
     },
+    "codex-cli-usage": {
+        "provider": "codex", "label": "Codex",
+        "description": "Codex rate limit monitor",
+        "keywords": ["codex", "openai", "chatgpt", "usage", "rate-limits", "statusline", "cli"],
+    },
     "cursor-cli-usage": {
         "provider": "cursor", "label": "Cursor",
         "description": "Cursor plan usage monitor",

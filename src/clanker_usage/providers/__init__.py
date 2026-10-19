@@ -7,6 +7,6 @@ balance. A provider may add
 add_commands(sub) and run_command(args) for its own setup command.
 """
 
-from . import agy, cursor, deepseek, devin, gemini, zcode
+from . import agy, codex, cursor, deepseek, devin, gemini, zcode
 
-PROVIDERS = {module.NAME: module for module in (agy, cursor, deepseek, devin, gemini, zcode)}
+PROVIDERS = {module.NAME: module for module in (agy, codex, cursor, deepseek, devin, gemini, zcode)}
