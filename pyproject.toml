@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clanker-usage"
-version = "0.4.0"
+version = "0.4.1"
 description = "Plan and quota of coding-agent accounts, with a statusline, a cache daemon and a check for provider changes"
 readme = "README.md"
 keywords = ["usage", "quota", "statusline", "z.ai", "ai-agents", "cli"]
