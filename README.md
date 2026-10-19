@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers so far: Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). The other usage monitors in the same family, such as `ccusage`, `codex-cli-usage` and `agy-usage`, move into this codebase and onto the same interface, each keeping its package name and command.
+Providers so far: Antigravity (`agy-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Claude Code (`ccusage`) and Codex (`codex-cli-usage`) move into this codebase and onto the same interface next, each keeping its package name and command.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -98,7 +98,13 @@ The `XDG_CACHE_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME` variables move them
 - `missing`: a window that the previous check saw is absent.
 - `error`: the request failed or the response did not parse.
 
-It exits with status 1 unless every provider is `ok`, so it can run from a timer or CI and notify on failure. Its state file keeps paths and window names but no values. `check --record DIR` also saves a synthetic copy of each live response in `DIR`.
+A provider whose login has no quota, such as Gemini CLI on an API key, reports `expected-unavailable`. `check` exits with status 1 unless every provider is `ok` or `expected-unavailable`, so it can run from a timer or CI and notify on failure. Its state file keeps paths and window names but no values. `check --record DIR` also saves a synthetic copy of each live response in `DIR`.
+
+## Antigravity
+
+Sign in with the Antigravity CLI, `agy`. The tool reads its Google login from `~/.gemini/antigravity-cli/antigravity-oauth-token`. When agy has left the access token expired, the tool renews it with the OAuth client compiled into `agy` and saves it back, but only if agy has not renewed it meanwhile, so a renewal agy made is never undone. Requests carry the installed agy version, because the quota service leaves out the Gemini group for older clients. The account id is a fingerprint of the Google account in the login's id token.
+
+Quota comes from Google's Code Assist `retrieveUserQuotaSummary`. Each quota group, such as Gemini or Claude and GPT, has a `5-hour` and a `weekly` window, with the group as the window's `scope`; the plan is the paid tier's name, such as Google AI Ultra.
 
 ## Cursor
 
@@ -117,6 +123,12 @@ The balance comes from DeepSeek's `GET /user/balance`. DeepSeek reports no quota
 Sign in with the Devin CLI. The tool reads its local API key and server from `~/.local/share/devin/credentials.toml` (under `$XDG_DATA_HOME` when set), sends requests only to that server over HTTPS, and never changes the file. The account id is a fingerprint of the key.
 
 Usage comes from the server's `SeatManagementService/GetUserStatus`. The `daily` and `weekly` windows come from the remaining quota it reports; `details.credits` keeps the prompt, flow and flex credits and the overage balance. The tool keeps only the plan and quota parts of the response, leaving out the account's name, email and model lists.
+
+## Gemini CLI
+
+Quota exists only for a Google login. The tool chooses the login as Gemini CLI does: the `GOOGLE_GENAI_USE_GCA`, `GOOGLE_GENAI_USE_VERTEXAI`, `GEMINI_API_KEY` and Cloud Shell variables, then `.gemini/settings.json` in the current directory, then `~/.gemini/settings.json` (under `$GEMINI_CLI_HOME` when set). With any other login the document is `unavailable` and `check` reports `expected-unavailable`, which does not fail it. With a Google login it reads `~/.gemini/oauth_creds.json` and renews an expired token the same way as for Antigravity, using the OAuth client in the credentials file or in the installed Gemini CLI.
+
+Quota comes from Code Assist `retrieveUserQuota`, with one window per model, scoped to that model. `GOOGLE_CLOUD_PROJECT` selects the Code Assist project for accounts that need one, as in Gemini CLI.
 
 ## Z.ai Coding Plan
 

@@ -17,6 +17,11 @@ CORE = "clanker-usage"
 REPOSITORY = "https://github.com/wakamex/clanker-usage"
 
 WRAPPERS = {
+    "agy-usage": {
+        "provider": "agy", "label": "Antigravity",
+        "description": "Antigravity quota monitor",
+        "keywords": ["antigravity", "agy", "gemini", "usage", "quota", "statusline", "cli"],
+    },
     "cursor-cli-usage": {
         "provider": "cursor", "label": "Cursor",
         "description": "Cursor plan usage monitor",
@@ -31,6 +36,11 @@ WRAPPERS = {
         "provider": "devin", "label": "Devin",
         "description": "Devin quota and credits monitor",
         "keywords": ["devin", "windsurf", "usage", "quota", "statusline", "cli"],
+    },
+    "gemini-cli-usage": {
+        "provider": "gemini", "label": "Gemini CLI",
+        "description": "Gemini CLI model quota monitor",
+        "keywords": ["gemini", "gemini-cli", "google", "usage", "quota", "statusline", "cli"],
     },
     "zcode-cli-usage": {
         "provider": "zcode", "label": "Z.ai Coding Plan",

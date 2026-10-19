@@ -11,6 +11,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from . import cache, paths, shapes
+from .errors import ExpectedUnavailable
 from .providers import PROVIDERS
 
 CORE = "clanker-usage"
@@ -105,6 +106,12 @@ def pct(value):
     return f"{round(value, 1):g}%"
 
 
+def label(window):
+    """The window's name, after its scope when the scope adds something, such as "Gemini weekly"."""
+    scope = window.get("scope")
+    return f"{scope} {window['name']}" if scope and scope != window["name"] else window["name"]
+
+
 def money(item):
     return f"{item['amount']:.2f} {item['currency']}"
 
@@ -121,7 +128,7 @@ def render(provider, record):
     lines = [f"{provider.LABEL}: {record['plan'] or 'no plan'}"]
     lines += [f"  balance: {money(item)}" for item in record.get("balance") or []]
     for window in record["windows"]:
-        line = f"  {window['name']}: {pct(window['used_pct'])} used"
+        line = f"  {label(window)}: {pct(window['used_pct'])} used"
         if window["resets_at"]:
             reset = datetime.fromisoformat(window["resets_at"]).astimezone()
             line += f", resets {reset:%Y-%m-%d %H:%M %Z}"
@@ -136,7 +143,7 @@ def statusline(provider, record):
     parts = [f"{provider.LABEL} {record['plan'] or 'no plan'}"]
     parts += [money(item) for item in record.get("balance") or []]
     for window in record["windows"]:
-        part = f"{window['name']} {pct(window['used_pct'])}"
+        part = f"{label(window)} {pct(window['used_pct'])}"
         until = short_duration(window["resets_at"]) if window["resets_at"] else ""
         if until:
             part += f" ({until})"
@@ -155,7 +162,7 @@ def table(records):
         if not record["windows"] and not record.get("balance"):
             rows.append((name, record["plan"] or "", "-", "", "", note or ("no plan" if not record["plan"] else "")))
         for window in record["windows"]:
-            rows.append((name, record["plan"] or "", window["name"], pct(window["used_pct"]),
+            rows.append((name, record["plan"] or "", label(window), pct(window["used_pct"]),
                          short_duration(window["resets_at"]) if window["resets_at"] else "", note))
     widths = [max(len(row[i]) for row in rows) for i in range(5)]
     return "\n".join(("  ".join(cell.ljust(width) for cell, width in zip(row[:5], widths)) + "  " + row[5]).rstrip()
@@ -165,7 +172,8 @@ def table(records):
 def check_one(provider, record_dir=None):
     """Fetch live, compare the response's structure with the recorded shapes, and save the outcome.
 
-    The result is error, new-shape, missing (a window the previous check saw is absent) or ok.
+    The result is error, new-shape, missing (a window the previous check saw is absent), ok, or
+    expected-unavailable when the login has no quota to read, such as Gemini CLI on an API key.
     The saved state holds paths and window names, never values.
     """
     state_path = paths.state_file(provider.NAME)
@@ -183,6 +191,9 @@ def check_one(provider, record_dir=None):
             state.update(result="new-shape")
             state["details"] += new
         names = [window["name"] for window in provider.normalize(payload)["windows"]]
+    except ExpectedUnavailable as exc:
+        state["result"] = "expected-unavailable"
+        state["details"].append(str(exc))
     except ERRORS as exc:
         state["result"] = "error"
         state["details"].append(str(exc))
@@ -201,7 +212,7 @@ def check(names, record_dir=None):
     for name in names:
         state = check_one(PROVIDERS[name], record_dir)
         print(f"{name}: {state['result']}" + "".join(f"\n  {line}" for line in state["details"]))
-        failed |= state["result"] != "ok"
+        failed |= state["result"] not in ("ok", "expected-unavailable")
     return 1 if failed else 0
 
 

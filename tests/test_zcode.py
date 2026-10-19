@@ -169,8 +169,8 @@ class StandardCommandTests(Home):
         with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(cli.main(["--json"]), 0)
         statuses = {record["provider"]: record["status"] for record in json.loads(out.getvalue())}
-        self.assertEqual(statuses, {"cursor": "unavailable", "deepseek": "unavailable", "devin": "unavailable",
-                                    "zcode": "cached"})
+        self.assertEqual(statuses, {"agy": "unavailable", "cursor": "unavailable", "deepseek": "unavailable",
+                                    "devin": "unavailable", "gemini": "unavailable", "zcode": "cached"})
 
     def test_refresh_fails_without_a_key(self):
         with patch.dict(os.environ, {"ZAI_API_KEY": ""}):

@@ -1,0 +1,59 @@
+{
+  "load": {
+    "currentTier": {
+      "id": "free-tier",
+      "name": "Antigravity"
+    },
+    "paidTier": {
+      "id": "g1-ultra-lite-tier",
+      "name": "Google AI Ultra"
+    }
+  },
+  "summary": {
+    "groups": [
+      {
+        "buckets": [
+          {
+            "bucketId": "gemini-weekly",
+            "displayName": "Weekly Limit Remaining",
+            "window": "weekly",
+            "resetTime": "2001-01-01T00:00:00Z",
+            "description": "synthetic",
+            "remainingFraction": 0.5
+          },
+          {
+            "bucketId": "gemini-5h",
+            "displayName": "Five Hour Limit Remaining",
+            "window": "5h",
+            "resetTime": "2001-01-01T00:00:00Z",
+            "description": "synthetic",
+            "remainingFraction": 0.5
+          }
+        ],
+        "displayName": "Gemini Models",
+        "description": "synthetic"
+      },
+      {
+        "buckets": [
+          {
+            "bucketId": "3p-weekly",
+            "displayName": "Weekly Limit Remaining",
+            "window": "weekly",
+            "resetTime": "2001-01-01T00:00:00Z",
+            "remainingFraction": 1
+          },
+          {
+            "bucketId": "3p-5h",
+            "displayName": "Five Hour Limit Remaining",
+            "window": "5h",
+            "resetTime": "2001-01-01T00:00:00Z",
+            "remainingFraction": 1
+          }
+        ],
+        "displayName": "Claude and GPT models",
+        "description": "synthetic"
+      }
+    ],
+    "description": "synthetic"
+  }
+}
