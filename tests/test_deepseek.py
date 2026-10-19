@@ -220,6 +220,51 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(deepseek._expand_harness_home("~other/dsh"), "~other/dsh")
 
 
+class Harness02CredentialTests(CredentialTests):
+    """Harness 0.2's version 1 store, its precedence, and routes in profile patches."""
+
+    def test_a_version_1_store_ranks_above_the_environment(self):
+        self.write_credential("version: 1\nrefs:\n  DEEPSEEK_API_KEY: stored-key\nrecords: {}\nforeign: ignored\n")
+        os.environ["DEEPSEEK_API_KEY"] = "inherited-key"
+        self.assertEqual(deepseek.get_api_key(self.project), "stored-key")
+
+    def test_without_a_store_harness_02_falls_back_to_the_environment_then_env_files(self):
+        (self.dsh_home / "profiles").mkdir()
+        (self.dsh_home / ".env").write_text("DEEPSEEK_API_KEY=user-key\n")
+        self.assertEqual(deepseek.get_api_key(self.project), "user-key")
+        os.environ["DEEPSEEK_API_KEY"] = "inherited-key"
+        self.assertEqual(deepseek.get_api_key(self.project), "inherited-key")
+
+    def test_invalid_version_1_stores_are_rejected_whole(self):
+        for text in ("version: 2\nrefs: {}\n", "version: true\nrefs: {}\n", "version: '1'\nrefs: {}\n",
+                     "version: 1\nrefs: [a]\n", "version: 1\nrecords: [a]\n", "version: 1\nrefs:\n  DEEPSEEK_API_KEY: 42\n",
+                     "version: 1\nrefs:\n  not-a-name: key\n"):
+            with self.subTest(text=text):
+                self.write_credential(text)
+                with self.assertRaises(RuntimeError):
+                    deepseek.get_api_key(self.project)
+
+    def write_patch(self, text):
+        profile = self.dsh_home / "profiles" / "web"
+        profile.mkdir(parents=True, exist_ok=True)
+        (profile / "cordis.patch.yml").write_text(text)
+
+    def test_a_profile_patch_with_a_custom_route_is_refused(self):
+        self.write_credential("version: 1\nrefs:\n  DEEPSEEK_API_KEY: gateway-secret\n")
+        self.write_patch("- id: llm-deepseek-api-key\n  config:\n    baseURL: https://gateway.example/anthropic\n")
+        with self.assertRaisesRegex(RuntimeError, "custom DeepSeek endpoint"):
+            deepseek.get_api_key(self.project)
+        self.write_patch("- id: llm-deepseek-api-key\n  config:\n    apiKeyEnv: GATEWAY_KEY\n")
+        with self.assertRaisesRegex(RuntimeError, "credential reference"):
+            deepseek.get_api_key(self.project)
+        self.write_patch("- id: llm-deepseek-api-key\n  config:\n    baseURL: https://api.deepseek.com/anthropic\n"
+                         "- id: other-plugin\n  config:\n    baseURL: https://elsewhere.example\n")
+        self.assertEqual(deepseek.get_api_key(self.project), "gateway-secret")
+        self.write_patch("- !!js/function 'x'\n")
+        with self.assertRaisesRegex(RuntimeError, "cannot be read"):
+            deepseek.get_api_key(self.project)
+
+
 class BalanceTests(Home):
     def test_normalize(self):
         body = deepseek.normalize(PAYLOAD)

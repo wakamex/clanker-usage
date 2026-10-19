@@ -199,11 +199,12 @@ def _dotenv_value(path: Path, name: str) -> str | None:
     return value if found and value else None
 
 
-def _managed_credential(path: Path, name: str) -> str | None:
+def _managed_credential(path: Path, name: str) -> tuple[int | None, str | None]:
+    """The layout of Harness's credential store, 0 for flat or 1 for version 1, and the value for name."""
     try:
         mode = path.stat().st_mode
     except FileNotFoundError:
-        return None
+        return None, None
     except OSError as exc:
         raise RuntimeError(
             f"Could not inspect Harness credential store at {path}"
@@ -215,7 +216,7 @@ def _managed_credential(path: Path, name: str) -> str | None:
         )
     text = _read_text_if_present(path, "Harness credential store")
     if text is None:  # The file may disappear between stat and read.
-        return None
+        return None, None
     yaml, loader = _yaml()
     try:
         document = yaml.load(text, Loader=loader)
@@ -233,7 +234,26 @@ def _managed_credential(path: Path, name: str) -> str | None:
         document = {}
     if not isinstance(document, dict):
         raise RuntimeError(f"Harness credential store {path} must be a mapping")
-    for key, value in document.items():
+    if not document:
+        return None, None
+    if "version" not in document:
+        # The flat layout of Harness 0.1.x: references at the top level.
+        return 0, _credential_refs(document, path).get(name)
+    # Harness 0.2 nests references under `refs` in a version 1 document and ignores unknown top-level keys.
+    version = document["version"]
+    if isinstance(version, bool) or version != 1:
+        raise RuntimeError(f"Harness credential store {path} declares a version other than 1, which this tool cannot read")
+    if not isinstance(document.get("records", {}), dict):
+        raise RuntimeError(f"Harness credential store {path} has invalid records")
+    refs = document.get("refs", {})
+    if not isinstance(refs, dict):
+        raise RuntimeError(f"Harness credential store {path} has invalid refs")
+    return 1, _credential_refs(refs, path).get(name)
+
+
+def _credential_refs(refs: dict, path: Path) -> dict:
+    """References to non-empty strings, rejecting the whole store otherwise, as Harness does."""
+    for key, value in refs.items():
         if not isinstance(key, str) or _CREDENTIAL_NAME.fullmatch(key) is None:
             raise RuntimeError(
                 f"Harness credential store {path} has an invalid credential reference"
@@ -244,7 +264,7 @@ def _managed_credential(path: Path, name: str) -> str | None:
             raise RuntimeError(
                 f"The value for {key} in {path} is empty; remove it instead"
             )
-    return document.get(name)
+    return refs
 
 
 def _usable_api_key(value: str) -> str:
@@ -272,7 +292,7 @@ def _is_official_base_url(value: str) -> bool:
         and port in (None, 443)
         and parsed.username is None
         and parsed.password is None
-        and parsed.path.rstrip("/") in ("", "/v1")
+        and parsed.path.rstrip("/") in ("", "/v1", "/anthropic")
         and not parsed.query
         and not parsed.fragment
     )
@@ -326,6 +346,15 @@ def _assert_compatible_harness_route(cwd: Path) -> None:
                     f"{EXPLICIT_KEY_ENV} to the official DeepSeek account key for this tool"
                 )
 
+    for base_url, credential_ref in _profile_overrides(dsh_home):
+        if credential_ref not in (None, CREDENTIAL_REF):
+            raise RuntimeError(
+                "Harness uses a custom DeepSeek credential reference; set "
+                f"{EXPLICIT_KEY_ENV} to the official DeepSeek account key for this tool"
+            )
+        if base_url is not None:
+            bases.append((True, base_url))
+
     if any(
         present and (not isinstance(base, str) or not _is_official_base_url(base))
         for present, base in bases
@@ -336,8 +365,42 @@ def _assert_compatible_harness_route(cwd: Path) -> None:
         )
 
 
+def _profile_overrides(dsh_home: Path) -> list[tuple[object, object]]:
+    """The baseURL and apiKeyEnv that Harness 0.2 profile patches set for a DeepSeek plugin.
+
+    Each profile's cordis.patch.yml is a list of patch entries; one whose id names a DeepSeek
+    plugin can override its endpoint or credential reference. A patch this tool cannot read, such
+    as one using a JavaScript expression, fails closed.
+    """
+    overrides = []
+    for patch in sorted((dsh_home / "profiles").glob("*/cordis.patch.yml")):
+        text = _read_text_if_present(patch, "Harness profile patch")
+        if not text:
+            continue
+        yaml, loader = _yaml()
+        try:
+            entries = yaml.load(text, Loader=loader)
+        except yaml.YAMLError:
+            raise RuntimeError(
+                f"Could not verify the DeepSeek route because {patch} cannot be read; set "
+                f"{EXPLICIT_KEY_ENV} to the official DeepSeek account key for this tool"
+            ) from None
+        for entry in entries or []:
+            if not isinstance(entry, dict) or "deepseek" not in str(entry.get("id", "")):
+                continue
+            config = entry.get("config")
+            if isinstance(config, dict):
+                overrides.append((config.get("baseURL"), config.get("apiKeyEnv")))
+    return overrides
+
+
 def get_api_key(cwd: Path | None = None) -> str:
-    """Resolve the default DeepSeek key using Harness credential precedence."""
+    """Resolve the default DeepSeek key with the precedence of the installed Harness.
+
+    Harness 0.1 (a flat credential store): the exported DEEPSEEK_API_KEY, the store, the project's
+    .env, then $DSH_HOME/.env. Harness 0.2 (a version 1 store): the store, the exported key, the
+    project's .env, then $DSH_HOME/.env.
+    """
     explicit = os.environ.get(EXPLICIT_KEY_ENV)
     if explicit is not None:
         return _usable_api_key(explicit)
@@ -345,14 +408,16 @@ def get_api_key(cwd: Path | None = None) -> str:
     project_root = _absolute_lexical(str(cwd or Path.cwd()))
     _assert_compatible_harness_route(project_root)
 
-    inherited = os.environ.get(CREDENTIAL_REF)
-    if inherited:
-        return _usable_api_key(inherited)
-
     dsh_home = get_dsh_home()
-    stored = _managed_credential(dsh_home / ".credentials.yaml", CREDENTIAL_REF)
-    if stored:
-        return _usable_api_key(stored)
+    layout, stored = _managed_credential(dsh_home / ".credentials.yaml", CREDENTIAL_REF)
+    inherited = os.environ.get(CREDENTIAL_REF)
+    if layout is None:
+        # No store yet: Harness 0.2 keeps profiles, 0.1 did not.
+        layout = 1 if (dsh_home / "profiles").is_dir() else 0
+    # Harness 0.1 ranked an exported key above its store; 0.2 ranks the store first.
+    for value in ((inherited, stored) if layout == 0 else (stored, inherited)):
+        if value:
+            return _usable_api_key(value)
 
     project = _dotenv_value(project_root / ".env", CREDENTIAL_REF)
     if project:
