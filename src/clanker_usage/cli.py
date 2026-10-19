@@ -2,20 +2,22 @@
 
 import argparse
 import json
-import os
 import signal
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from . import cache, shapes
+from . import cache, paths, shapes
 from .providers import PROVIDERS
 
 CORE = "clanker-usage"
 SCHEMA = "usage-v1"
 ERRORS = (RuntimeError, ValueError, OSError, OverflowError)
+FETCH_ERRORS = (RuntimeError, ValueError, OverflowError)
+STATUSLINE_MAX_AGE = 300
 
 
 def package_version(package):
@@ -25,30 +27,106 @@ def package_version(package):
         return version(CORE)
 
 
-def load(provider, cached=False):
-    """The provider's current record and its usage-v1 status: live, cached or stale."""
-    previous = cache.read_json(provider.cache_path())
-    if cached and previous and cache.is_fresh(previous, provider.INTERVAL):
-        return previous, "cached"
-    try:
-        record = provider.normalize(provider.fetch())
-    except (RuntimeError, ValueError, OverflowError):
-        if not previous:
-            raise
-        return {**previous, "stale": True}, "stale"
-    cache.write_json(provider.cache_path(), record)
-    return record, "live"
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def summary(provider, record, status):
+def document(provider, account, status, body=None, error=None, retrieved_at=None):
+    """A usage-v1 document: the same fields for every provider, with provider-only data under details."""
+    body = body or {"plan": None, "windows": [], "details": {}}
     return {
-        "schema": SCHEMA, "account": provider.NAME, "plan": record.get("plan"), "status": status,
-        "error": None, "retrieved_at": record.get("updated_at"), "windows": provider.windows(record),
+        "schema": SCHEMA, "provider": provider.NAME, "account": account, "plan": body["plan"],
+        "status": status, "error": error, "retrieved_at": retrieved_at, "windows": body["windows"],
+        "details": body["details"],
     }
 
 
-def state_path(provider):
-    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "clanker-usage/check" / f"{provider.NAME}.json"
+def cached(provider, account):
+    record = cache.read_json(paths.cache_file(provider.NAME, account))
+    if record and record.get("schema") == SCHEMA and record.get("account") == account:
+        return record
+    return None
+
+
+def fetch(provider, account):
+    """Fetch live, save the document in the account's cache, and return it."""
+    record = document(provider, account, "live", provider.normalize(provider.fetch()), retrieved_at=now())
+    cache.write_json(paths.cache_file(provider.NAME, account), record)
+    return record
+
+
+def load(provider, max_age=0):
+    """The provider's document: cached when younger than max_age, else live, else stale or unavailable."""
+    try:
+        account = provider.account()
+    except FETCH_ERRORS as exc:
+        return document(provider, None, "unavailable", error=str(exc))
+    previous = cached(provider, account)
+    if previous and max_age > 0 and cache.is_fresh(previous, max_age):
+        return {**previous, "status": "cached"}
+    try:
+        return fetch(provider, account)
+    except FETCH_ERRORS as exc:
+        if previous:
+            return {**previous, "status": "stale", "error": str(exc)}
+        return document(provider, account, "unavailable", error=str(exc))
+
+
+def short_duration(iso):
+    """Time until iso, such as 2.9h or 4.7d; empty once it has passed."""
+    hours = (datetime.fromisoformat(iso) - datetime.now(timezone.utc)).total_seconds() / 3600
+    if hours <= 0:
+        return ""
+    return f"{hours / 24:.1f}d" if hours >= 48 else f"{hours:.1f}h"
+
+
+def status_note(record):
+    if record["status"] == "unavailable":
+        return f"unavailable: {record['error']}"
+    if record["status"] == "stale":
+        return f"stale, from {record['retrieved_at']}; live fetch failed: {record['error']}"
+    return None
+
+
+def render(provider, record):
+    lines = [f"{provider.LABEL}: {record['plan'] or 'no plan'}"]
+    for window in record["windows"]:
+        line = f"  {window['name']}: {window['used_pct']:g}% used"
+        if window["resets_at"]:
+            reset = datetime.fromisoformat(window["resets_at"]).astimezone()
+            line += f", resets {reset:%Y-%m-%d %H:%M %Z}"
+        lines.append(line)
+    note = status_note(record)
+    return "\n".join(lines + ([f"  ({note})"] if note else []))
+
+
+def statusline(provider, record):
+    if record["status"] == "unavailable":
+        return f"{provider.LABEL} unavailable"
+    parts = [f"{provider.LABEL} {record['plan'] or 'no plan'}"]
+    for window in record["windows"]:
+        part = f"{window['name']} {window['used_pct']:g}%"
+        until = short_duration(window["resets_at"]) if window["resets_at"] else ""
+        if until:
+            part += f" ({until})"
+        parts.append(part)
+    return " · ".join(parts) + (" (stale)" if record["status"] == "stale" else "")
+
+
+def table(records):
+    """One row per window of every provider's document."""
+    rows = [("account", "plan", "window", "used", "resets in", "note")]
+    for provider, record in records:
+        name = provider.LABEL + (f" {record['account'][:8]}" if record["account"] else "")
+        note = status_note(record) or ""
+        if not record["windows"]:
+            rows.append((name, record["plan"] or "", "-", "", "", note or ("no plan" if not record["plan"] else "")))
+        for window in record["windows"]:
+            rows.append((name, record["plan"] or "", window["name"], f"{window['used_pct']:g}%",
+                         short_duration(window["resets_at"]) if window["resets_at"] else "", note))
+    widths = [max(len(row[i]) for row in rows) for i in range(5)]
+    return "\n".join(("  ".join(cell.ljust(width) for cell, width in zip(row[:5], widths)) + "  " + row[5]).rstrip()
+                     for row in rows)
 
 
 def check_one(provider, record_dir=None):
@@ -57,9 +135,9 @@ def check_one(provider, record_dir=None):
     The result is error, new-shape, missing (a window the previous check saw is absent) or ok.
     The saved state holds paths and window names, never values.
     """
-    previous = cache.read_json(state_path(provider)) or {}
-    state = {"checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-             "result": "ok", "details": [], "windows": previous.get("windows", [])}
+    state_path = paths.state_file(provider.NAME)
+    previous = cache.read_json(state_path) or {}
+    state = {"checked_at": now(), "result": "ok", "details": [], "windows": previous.get("windows", [])}
     try:
         payload = provider.fetch()
         if record_dir:
@@ -71,7 +149,7 @@ def check_one(provider, record_dir=None):
         if new:
             state.update(result="new-shape")
             state["details"] += new
-        names = [window["name"] for window in provider.windows(provider.normalize(payload))]
+        names = [window["name"] for window in provider.normalize(payload)["windows"]]
     except ERRORS as exc:
         state["result"] = "error"
         state["details"].append(str(exc))
@@ -81,7 +159,7 @@ def check_one(provider, record_dir=None):
             state["result"] = "missing"
         state["details"] += [f"missing window: {name}" for name in missing]
         state["windows"] = names
-    cache.write_json(state_path(provider), state)
+    cache.write_json(state_path, state)
     return state
 
 
@@ -94,21 +172,50 @@ def check(names, record_dir=None):
     return 1 if failed else 0
 
 
-def positive_interval(value):
+def daemon(provider, interval):
+    """Refresh the account's cache every interval, skipping a refresh another process just made."""
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    backoff = interval
+    while True:
+        try:
+            account = provider.account()
+            previous = cached(provider, account)
+            if not (previous and cache.is_fresh(previous, interval)):
+                print(statusline(provider, fetch(provider, account)), flush=True)
+            backoff = interval
+        except ERRORS as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            backoff = min(backoff * 2, max(interval, 3600))
+        time.sleep(backoff)
+
+
+def positive_int(value):
     result = int(value)
     if result <= 0:
-        raise argparse.ArgumentTypeError("interval must be positive")
+        raise argparse.ArgumentTypeError("must be positive")
     return result
+
+
+def nonnegative_int(value):
+    result = int(value)
+    if result < 0:
+        raise argparse.ArgumentTypeError("must not be negative")
+    return result
+
+
+def add_max_age(parser, default):
+    parser.add_argument("--max-age", type=nonnegative_int, default=default, metavar="SECONDS",
+                        help=f"reuse a cache younger than this; 0 always fetches (default: {default})")
 
 
 def add_provider_commands(parser, provider):
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("status", help="Fetch and show current quotas (the default)")
-    sub.add_parser("json", help="Normalized JSON with a usage-v1 summary")
+    add_max_age(sub.add_parser("status", help="Show current quotas (the default)"), 0)
+    add_max_age(sub.add_parser("json", help="Print the usage-v1 document"), 0)
+    add_max_age(sub.add_parser("statusline", help="Print one line for a status bar"), STATUSLINE_MAX_AGE)
     sub.add_parser("refresh", help="Fetch and update the cache; fail if unavailable")
-    sub.add_parser("statusline", help=f"One line; reuse a cache less than {provider.INTERVAL} seconds old")
-    daemon = sub.add_parser("daemon", help=f"Refresh the cache every {provider.INTERVAL} seconds")
-    daemon.add_argument("--interval", "-i", type=positive_interval, default=provider.INTERVAL)
+    daemon_parser = sub.add_parser("daemon", help=f"Refresh the cache every {provider.INTERVAL} seconds")
+    daemon_parser.add_argument("--interval", type=positive_int, default=provider.INTERVAL, metavar="SECONDS")
     checker = sub.add_parser("check", help="Compare a live response with the recorded response shapes")
     checker.add_argument("--record", metavar="DIR", type=Path, help="also save a synthetic copy of the response in DIR")
     provider.add_commands(sub)
@@ -119,30 +226,33 @@ def run_provider(provider, args):
         return 0
     command = args.command or "status"
     if command == "daemon":
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        backoff = args.interval
-        while True:
-            try:
-                record = provider.normalize(provider.fetch())
-                cache.write_json(provider.cache_path(), record)
-                print(provider.display(record, compact=True))
-                backoff = args.interval
-            except ERRORS as exc:
-                print(str(exc), file=sys.stderr, flush=True)
-                backoff = min(backoff * 2, max(args.interval, 3600))
-            sys.stdout.flush()
-            time.sleep(backoff)
-    if command == "refresh":
-        cache.write_json(provider.cache_path(), provider.normalize(provider.fetch()))
-        print(f"Updated {provider.cache_path()}")
-    elif command == "check":
+        daemon(provider, args.interval)
+    if command == "check":
         return check([provider.NAME], args.record)
+    if command == "refresh":
+        account = provider.account()
+        fetch(provider, account)
+        print(f"Updated {paths.cache_file(provider.NAME, account)}")
+        return 0
+    # A bare provider command is status with its default; the core's own --max-age is for the all-accounts view.
+    record = load(provider, args.max_age if args.command else 0)
+    if command == "json":
+        print(json.dumps(record, indent=2, ensure_ascii=False))
+    elif command == "statusline":
+        print(statusline(provider, record))
     else:
-        record, status = load(provider, cached=command == "statusline")
-        if command == "json":
-            print(json.dumps({**record, "summary": summary(provider, record, status)}, indent=2))
-        else:
-            print(provider.display(record, compact=command == "statusline"))
+        print(render(provider, record))
+    return 1 if record["status"] == "unavailable" else 0
+
+
+def show_all(max_age, as_json):
+    providers = list(PROVIDERS.values())
+    with ThreadPoolExecutor(len(providers)) as pool:
+        records = list(pool.map(lambda provider: load(provider, max_age), providers))
+    if as_json:
+        print(json.dumps(records, indent=2, ensure_ascii=False))
+    else:
+        print(table(list(zip(providers, records))))
     return 0
 
 
@@ -168,12 +278,16 @@ def run(name, argv=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog=CORE, description=__doc__)
     parser.add_argument("--version", action="version", version=version(CORE))
-    sub = parser.add_subparsers(dest="provider", required=True, metavar="{check," + ",".join(PROVIDERS) + "}")
+    parser.add_argument("--json", action="store_true", help="print every account's usage-v1 document")
+    add_max_age(parser, STATUSLINE_MAX_AGE)
+    sub = parser.add_subparsers(dest="provider", metavar="{check," + ",".join(PROVIDERS) + "}")
     checker = sub.add_parser("check", help="Check every provider's live response against its recorded shapes")
     checker.add_argument("--record", metavar="DIR", type=Path, help="also save synthetic copies of the responses in DIR")
     for name, provider in PROVIDERS.items():
         add_provider_commands(sub.add_parser(name, help=provider.DESCRIPTION), provider)
     args = parser.parse_args(argv)
+    if args.provider is None:
+        return guarded(show_all, args.max_age, args.json)
     if args.provider == "check":
         return guarded(check, list(PROVIDERS), args.record)
     return guarded(run_provider, PROVIDERS[args.provider], args)

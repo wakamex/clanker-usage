@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from clanker_usage import cli, shapes
+from clanker_usage import cli, paths, shapes
 from clanker_usage.providers import zcode
 
 # Synthetic values in the response format observed with API-key authentication on 2026-09-05.
@@ -24,31 +24,45 @@ RESPONSE = {
 }
 
 
-class ZcodeTests(unittest.TestCase):
+class Home(unittest.TestCase):
+    """A scratch home: every XDG directory in a temporary folder, and a synthetic API key."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        env = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp.name, "XDG_CACHE_HOME": self.temp.name})
+        root = Path(self.temp.name)
+        env = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config"), "XDG_CACHE_HOME": str(root / "cache"),
+                                      "XDG_STATE_HOME": str(root / "state"), "ZAI_API_KEY": "synthetic-key"})
         env.start()
         self.addCleanup(env.stop)
 
+    def run_command(self, *argv, response=RESPONSE, error=None):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(zcode, "fetch", return_value=response, side_effect=error), \
+                redirect_stdout(stdout), patch("sys.stderr", stderr):
+            status = cli.run("zcode", list(argv))
+        return status, stdout.getvalue(), stderr.getvalue()
+
+
+class ZcodeTests(Home):
     def test_every_recorded_shape_normalizes(self):
         recorded = shapes.recorded("zcode")
         self.assertEqual(set(recorded), {"no-plan-2026-10-18.json", "quota-2026-09-05.json"})
         for name, response in recorded.items():
             with self.subTest(name):
-                record = zcode.normalize(response)
-                zcode.windows(record)
-                zcode.display(record)
+                body = zcode.normalize(response)
+                cli.render(zcode, cli.document(zcode, "a", "live", body))
 
     def test_response(self):
-        data = zcode.normalize(RESPONSE)
-        short, weekly = data["limits"]
-        self.assertEqual(data["plan"], "lite")
-        self.assertIsNone(short["resets_at"])
-        self.assertEqual((weekly["used"], weekly["limit"], weekly["pct"], weekly["remaining"]), (50, 10000, 1, 9950))
-        self.assertEqual(weekly["resets_at"], "2026-09-11T03:38:39.995000+00:00")
-        self.assertEqual([window["name"] for window in zcode.windows(data)], ["5-hour", "weekly"])
+        body = zcode.normalize(RESPONSE)
+        self.assertEqual(body["plan"], "lite")
+        self.assertEqual(body["windows"], [
+            {"name": "5-hour", "seconds": 18000, "scope": None, "used_pct": 0, "resets_at": None},
+            {"name": "weekly", "seconds": 604800, "scope": None, "used_pct": 1,
+             "resets_at": "2026-09-11T03:38:39.995000+00:00"},
+        ])
+        self.assertEqual(body["details"]["limits"][1],
+                         {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "used": 50, "limit": 10000, "remaining": 9950})
 
     def test_invalid_responses(self):
         for response in ({}, {"code": 401, "success": False}, {"code": 200, "success": True, "data": {"limits": []}}):
@@ -61,64 +75,106 @@ class ZcodeTests(unittest.TestCase):
                 zcode.normalize(response)
 
     def test_account_without_plan(self):
-        data = zcode.normalize(shapes.recorded("zcode")["no-plan-2026-10-18.json"])
-        self.assertEqual((data["status"], data["plan"], data["limits"]), ("no_plan", None, []))
-        self.assertIn("updated_at", data)
-        self.assertEqual(zcode.display(data), "No active Coding Plan")
+        body = zcode.normalize(shapes.recorded("zcode")["no-plan-2026-10-18.json"])
+        self.assertEqual((body["plan"], body["windows"]), (None, []))
+        self.assertEqual(cli.render(zcode, cli.document(zcode, "a", "live", body)), "Z.ai: no plan")
 
-    def test_unknown_quota_preserved(self):
+    def test_unknown_quota_keeps_its_type(self):
         response = copy.deepcopy(RESPONSE)
         response["data"]["limits"][0].update(type="FUTURE_LIMIT", unit=42)
-        item = zcode.normalize(response)["limits"][0]
-        self.assertIn("FUTURE_LIMIT", zcode.label(item))
+        window = zcode.normalize(response)["windows"][0]
+        self.assertIn("FUTURE_LIMIT", window["name"])
+        self.assertIsNone(window["seconds"])
 
     def test_env_file_is_not_executed(self):
         path = Path(self.temp.name) / ".env"
         path.write_text('UNRELATED=ignored\nexport ZAI_API_KEY="literal$(false)" # comment\n')
         with patch.dict(os.environ, {"ZAI_API_KEY": ""}):
             self.assertEqual(zcode.get_api_key(path), "literal$(false)")
-        with patch.dict(os.environ, {"ZAI_API_KEY": "override"}):
-            self.assertEqual(zcode.get_api_key(path), "override")
+        self.assertEqual(zcode.get_api_key(), "synthetic-key")
+        self.assertEqual(zcode.get_api_key(path), "literal$(false)")
 
-    def test_cache_and_stale_fallback(self):
-        with patch.object(zcode, "fetch", return_value=RESPONSE) as fetch:
-            record, status = cli.load(zcode)
-            self.assertEqual(status, "live")
-            self.assertEqual(cli.load(zcode, cached=True), (record, "cached"))
-            fetch.assert_called_once()
-        with patch.object(zcode, "fetch", side_effect=RuntimeError("HTTP 401")):
-            stale, status = cli.load(zcode)
-            self.assertEqual(status, "stale")
-            self.assertTrue(stale["stale"])
-            self.assertEqual(stale["updated_at"], record["updated_at"])
-        self.assertNotIn("stale", json.loads(zcode.cache_path().read_text()))
-        self.assertEqual(zcode.cache_path().stat().st_mode & 0o777, 0o600)
-        self.assertEqual(zcode.cache_path().parent.stat().st_mode & 0o777, 0o700)
-
-    def test_json_keeps_the_record_and_adds_the_summary(self):
-        with patch.object(zcode, "fetch", return_value=RESPONSE), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(cli.run("zcode", ["json"]), 0)
-        data = json.loads(out.getvalue())
-        self.assertEqual(data["plan"], "lite")
-        self.assertEqual(len(data["limits"]), 2)
-        self.assertEqual(data["summary"]["schema"], "usage-v1")
-        self.assertEqual(data["summary"]["status"], "live")
-        self.assertEqual(data["summary"]["windows"][1],
-                         {"name": "weekly", "used_pct": 1, "resets_at": "2026-09-11T03:38:39.995000+00:00"})
-
-    def test_configure_stores_only_the_path(self):
+    def test_configure_stores_only_the_path_in_the_shared_config(self):
         path = Path(self.temp.name) / ".env"
-        path.write_text("ZAI_API_KEY=secret\n")
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.run("zcode", ["configure", "--env-file", str(path)]), 0)
-        self.assertEqual(json.loads(zcode.config_path().read_text()), {"env_file": str(path.resolve())})
+        path.write_text("ZAI_API_KEY=from-file\n")
+        status, out, _ = self.run_command("configure", "--env-file", str(path))
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(paths.config_file().read_text()), {"zcode": {"env_file": str(path.resolve())}})
+        with patch.dict(os.environ, {"ZAI_API_KEY": ""}):
+            self.assertEqual(zcode.get_api_key(), "from-file")
+
+    def test_the_cache_is_per_account(self):
+        self.run_command("refresh")
+        first = paths.cache_file("zcode", zcode.account())
+        self.assertTrue(first.exists())
+        with patch.dict(os.environ, {"ZAI_API_KEY": "another-key"}):
+            self.assertNotEqual(paths.cache_file("zcode", zcode.account()), first)
+            status, out, _ = self.run_command("json", "--max-age", "300", error=RuntimeError("HTTP 500"))
+        self.assertEqual((status, json.loads(out)["status"]), (1, "unavailable"))
+        self.assertNotIn("synthetic-key", first.read_text())
+
+
+class StandardCommandTests(Home):
+    def test_json_is_one_usage_v1_document(self):
+        status, out, _ = self.run_command("json")
+        data = json.loads(out)
+        self.assertEqual(status, 0)
+        self.assertEqual(set(data), {"schema", "provider", "account", "plan", "status", "error", "retrieved_at",
+                                     "windows", "details"})
+        self.assertEqual((data["schema"], data["provider"], data["status"]), ("usage-v1", "zcode", "live"))
+        self.assertEqual(data, {**json.loads(paths.cache_file("zcode", zcode.account()).read_text()), "status": "live"})
+
+    def test_max_age_reuses_the_cache_and_a_failure_falls_back_to_stale(self):
+        self.run_command("refresh")
+        with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.run("zcode", ["json", "--max-age", "300"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["status"], "cached")
+        status, out, _ = self.run_command("json", error=RuntimeError("Usage request failed (HTTP 500)"))
+        data = json.loads(out)
+        self.assertEqual((status, data["status"], data["error"]), (0, "stale", "Usage request failed (HTTP 500)"))
+        self.assertEqual(len(data["windows"]), 2)
+
+    def test_unavailable_exits_1_and_still_prints_the_document(self):
+        status, out, _ = self.run_command("json", error=RuntimeError("Could not connect to the usage API"))
+        data = json.loads(out)
+        self.assertEqual((status, data["status"], data["windows"]), (1, "unavailable", []))
+        with patch.dict(os.environ, {"ZAI_API_KEY": ""}):
+            status, out, _ = self.run_command("json")
+        self.assertEqual((status, json.loads(out)["account"]), (1, None))
+        self.assertIn("ZAI_API_KEY", json.loads(out)["error"])
+
+    def test_status_and_statusline_text(self):
+        status, out, _ = self.run_command()
+        self.assertEqual(status, 0)
+        self.assertTrue(out.startswith("Z.ai: lite\n  5-hour: 0% used\n  weekly: 1% used, resets 2026-09-1"), out)
+        status, out, _ = self.run_command("statusline")
+        # The synthetic weekly reset has passed, so no time remains to show.
+        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 1%\n")
+        status, out, _ = self.run_command("statusline", "--max-age", "0", error=RuntimeError("down"))
+        self.assertEqual(out, "Z.ai lite · 5-hour 0% · weekly 1% (stale)\n")
+
+    def test_the_core_command_alone_shows_every_account(self):
+        with patch.object(zcode, "fetch", return_value=RESPONSE), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main([]), 0)
+        header, short, weekly = out.getvalue().splitlines()
+        self.assertTrue(header.startswith("account"))
+        self.assertTrue(short.startswith(f"Z.ai {zcode.account()[:8]}  lite  5-hour"), short)
+        with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.main(["--json"]), 0)
+        self.assertEqual([record["status"] for record in json.loads(out.getvalue())], ["cached"])
 
     def test_refresh_fails_without_a_key(self):
-        env = {"ZAI_API_KEY": "", "ZCODE_USAGE_ENV_FILE": str(Path(self.temp.name) / "missing.env")}
-        with patch.dict(os.environ, env), redirect_stdout(io.StringIO()), \
-                patch("sys.stderr", new_callable=io.StringIO) as err:
-            self.assertEqual(cli.run("zcode", ["refresh"]), 1)
-        self.assertIn("ZAI_API_KEY", err.getvalue())
+        with patch.dict(os.environ, {"ZAI_API_KEY": ""}):
+            status, _, err = self.run_command("refresh")
+        self.assertEqual(status, 1)
+        self.assertIn("ZAI_API_KEY", err)
+
+    def test_daemon_skips_a_refresh_another_process_just_made(self):
+        self.run_command("refresh")
+        with patch.object(zcode, "fetch", side_effect=AssertionError("fetched")), \
+                patch.object(cli.time, "sleep", side_effect=KeyboardInterrupt), patch.object(cli.signal, "signal"):
+            with self.assertRaises(KeyboardInterrupt):
+                cli.daemon(zcode, 300)
 
     def test_daemon_rejects_a_zero_interval(self):
         with self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):

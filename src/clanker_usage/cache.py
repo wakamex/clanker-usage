@@ -23,7 +23,10 @@ def read_json(path):
 def write_json(path, data):
     """Replace path with data through a private temporary file in the same directory."""
     path = Path(path)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # mkdir(parents=True) gives only the last directory the mode, so create each missing one privately.
+    for folder in reversed([path.parent, *path.parent.parents]):
+        if not folder.exists():
+            folder.mkdir(mode=0o700)
     fd, name = tempfile.mkstemp(prefix=".usage-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
@@ -37,9 +40,9 @@ def write_json(path, data):
 
 
 def age(record):
-    """Seconds since the record's updated_at, or None when it is missing or malformed."""
+    """Seconds since the record's retrieved_at, or None when it is missing or malformed."""
     try:
-        updated = datetime.fromisoformat(record["updated_at"])
+        updated = datetime.fromisoformat(record["retrieved_at"])
         return (datetime.now(timezone.utc) - updated).total_seconds()
     except (KeyError, TypeError, ValueError):
         return None

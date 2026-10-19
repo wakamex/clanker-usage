@@ -1,9 +1,8 @@
 """Generate the wrapper packages that keep each provider's original package name and command.
 
 clanker-usage is the only codebase. A wrapper depends on the same version of clanker-usage and
-contains one generated module named after itself, so `NAME` and `python -m MODULE` keep working
-for existing installs, services and statusline settings. The module only calls clanker-usage's
-`run` for its provider.
+contains one generated module named after itself, so `NAME` and `python -m MODULE` run that
+provider. The module only calls clanker-usage's `run` for its provider.
 
 Usage: python build_wrappers.py [OUT_DIR] [PACKAGE ...]   (default OUT_DIR: dist-wrappers)
 """
@@ -73,7 +72,7 @@ Monitor your {label} quota from the terminal: current usage, a one-line statusli
 uv tool install {name}
 {name}              # current quotas
 {name} statusline   # one line, from a cache less than five minutes old
-{name} json         # normalized JSON with a usage-v1 summary
+{name} json         # the usage-v1 document
 ```
 
 `{name}` is the {label} command of [{core}]({repository}), so it installs {core} at the same version. The documentation lives there.

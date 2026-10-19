@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from clanker_usage import cache, cli, http, shapes
+from clanker_usage import cache, cli, http, paths, shapes
 from clanker_usage.providers import zcode
 from test_zcode import RESPONSE
 
@@ -72,13 +72,14 @@ class CacheTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.path = Path(self.temp.name) / "private" / "usage.json"
+        self.path = Path(self.temp.name) / "private" / "nested" / "usage.json"
 
     def test_write_is_private_and_read_rejects_bad_files(self):
         cache.write_json(self.path, {"a": 1})
         self.assertEqual(cache.read_json(self.path), {"a": 1})
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.path.parent.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(list(self.path.parent.iterdir()), [self.path])
         for content in (b"[1]", b"{", b" " * (cache.LIMIT + 1)):
             self.path.write_bytes(content)
@@ -86,10 +87,10 @@ class CacheTests(unittest.TestCase):
 
     def test_freshness_rejects_future_and_malformed_times(self):
         now = datetime.now(timezone.utc)
-        self.assertTrue(cache.is_fresh({"updated_at": (now - timedelta(seconds=10)).isoformat()}, 300))
-        self.assertFalse(cache.is_fresh({"updated_at": (now - timedelta(seconds=400)).isoformat()}, 300))
-        self.assertFalse(cache.is_fresh({"updated_at": (now + timedelta(seconds=60)).isoformat()}, 300))
-        self.assertFalse(cache.is_fresh({"updated_at": "yesterday"}, 300))
+        self.assertTrue(cache.is_fresh({"retrieved_at": (now - timedelta(seconds=10)).isoformat()}, 300))
+        self.assertFalse(cache.is_fresh({"retrieved_at": (now - timedelta(seconds=400)).isoformat()}, 300))
+        self.assertFalse(cache.is_fresh({"retrieved_at": (now + timedelta(seconds=60)).isoformat()}, 300))
+        self.assertFalse(cache.is_fresh({"retrieved_at": "yesterday"}, 300))
         self.assertFalse(cache.is_fresh({}, 300))
 
 
@@ -136,7 +137,7 @@ class CheckTests(unittest.TestCase):
         fetch = patch.object(zcode, "fetch", return_value=response, side_effect=error)
         with fetch, redirect_stdout(io.StringIO()) as out:
             status = cli.check(["zcode"], **options)
-        return status, out.getvalue(), json.loads(cli.state_path(zcode).read_text())
+        return status, out.getvalue(), json.loads(paths.state_file("zcode").read_text())
 
     def test_a_recorded_shape_passes_and_saves_no_values(self):
         status, out, state = self.check(RESPONSE)

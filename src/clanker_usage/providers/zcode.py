@@ -1,35 +1,31 @@
 """Z.ai Coding Plan quotas, read with an existing API key."""
 
+import hashlib
 import math
 import os
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import cache, http
+from .. import http, paths
 
 NAME = "zcode"
+LABEL = "Z.ai"
 PACKAGE = "zcode-cli-usage"
 DESCRIPTION = "Read Z.ai Coding Plan quotas using an existing API key."
 API_URL = "https://api.z.ai/api/monitor/usage/quota/limit"
 INTERVAL = 300
 # Response keys whose values describe the format rather than the account, kept when recording a shape.
 KEEP = frozenset({"code", "success", "msg", "level", "type", "unit", "number"})
-
-
-def config_path():
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "zcode-cli-usage/config.json"
-
-
-def cache_path():
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "zcode-cli-usage/usage.json"
+# Window length in seconds per API unit; the API uses 3 for hours and 6 for weeks.
+UNIT_SECONDS = {3: 3600, 6: 7 * 86400}
 
 
 def get_api_key(env_file=None):
     key = os.environ.get("ZAI_API_KEY", "").strip()
-    if key:
+    if key and env_file is None:
         return key
-    source = env_file or os.environ.get("ZCODE_USAGE_ENV_FILE") or (cache.read_json(config_path()) or {}).get("env_file")
+    source = env_file or paths.config(NAME).get("env_file")
     if source:
         try:
             for line in Path(source).expanduser().read_text().splitlines():
@@ -42,6 +38,11 @@ def get_api_key(env_file=None):
         except (OSError, ValueError):
             raise RuntimeError("Could not read ZAI_API_KEY from the configured env file") from None
     raise RuntimeError("Set ZAI_API_KEY or configure an env file with zcode-cli-usage configure --env-file PATH")
+
+
+def account():
+    """A one-way fingerprint of the API key, since the API names no account."""
+    return hashlib.sha256(get_api_key().encode()).hexdigest()[:16]
 
 
 def number(value):
@@ -61,64 +62,47 @@ def fetch():
     return http.get_json(API_URL, {"Authorization": "Bearer " + get_api_key(), "Accept": "application/json"})
 
 
+def window_name(item):
+    if item["unit"] == 3:
+        return f"{item['number']:g}-hour"
+    if item["unit"] == 6 and item["number"] == 1:
+        return "weekly"
+    return f"{item['type']} (unit {item['unit']:g}, number {item['number']:g})"
+
+
 def normalize(payload):
+    """The plan, windows and details of a quota response; an account without a Coding Plan has no plan."""
     if no_plan(payload):
-        return {"plan": None, "status": "no_plan", "source": "api",
-                "updated_at": datetime.now(timezone.utc).isoformat(), "limits": []}
+        return {"plan": None, "windows": [], "details": {"limits": []}}
     if not isinstance(payload, dict) or payload.get("code") != 200 or payload.get("success") is not True:
         raise ValueError("Usage API reported an unsuccessful response")
     data = payload.get("data")
     if not isinstance(data, dict) or not isinstance(data.get("limits"), list) or not data["limits"]:
         raise ValueError("Invalid quota response: missing limits")
-    limits = []
+    windows, limits = [], []
     for item in data["limits"]:
         if not isinstance(item, dict) or not isinstance(item.get("type"), str):
             raise ValueError("Invalid quota response: missing quota type")
-        unit = number(item.get("unit"))
-        count = number(item.get("number"))
+        limit = {"type": item["type"], "unit": number(item.get("unit")), "number": number(item.get("number")),
+                 "used": number(item.get("currentValue")), "limit": number(item.get("usage")),
+                 "remaining": number(item.get("remaining"))}
         reset = item.get("nextResetTime")
-        limits.append({
-            "type": item["type"], "unit": unit, "number": count,
-            "used": number(item.get("currentValue")),
-            "limit": number(item.get("usage")),
-            "remaining": number(item.get("remaining")),
-            "pct": number(item.get("percentage")),
+        unit_seconds = UNIT_SECONDS.get(limit["unit"])
+        windows.append({
+            "name": window_name(limit),
+            "seconds": int(unit_seconds * limit["number"]) if unit_seconds else None,
+            "scope": None,
+            # The API's rounded percentage is kept as reported; details hold the exact credit counts.
+            "used_pct": number(item.get("percentage")),
             "resets_at": datetime.fromtimestamp(number(reset) / 1000, timezone.utc).isoformat() if reset is not None else None,
         })
-    return {"plan": data.get("level", "unknown"), "source": "api", "updated_at": datetime.now(timezone.utc).isoformat(), "limits": limits}
-
-
-def label(item):
-    if item["unit"] == 3:
-        return f"{item['number']:g}-hour"
-    if item["unit"] == 6 and item["number"] == 1:
-        return "Weekly"
-    return f"{item['type']} (unit {item['unit']:g}, number {item['number']:g})"
-
-
-def windows(record):
-    return [{"name": label(item).lower(), "used_pct": item["pct"], "resets_at": item["resets_at"]}
-            for item in record["limits"]]
-
-
-def display(record, compact=False):
-    if record.get("status") == "no_plan":
-        return "No active Coding Plan"
-    parts = []
-    for item in record["limits"]:
-        suffix = " credits" if item["type"] == "CREDIT_LIMIT" else f" {item['type']}"
-        text = f"{label(item)}: {item['pct']:g}% ({item['used']:g}/{item['limit']:g}{suffix})"
-        if item["resets_at"]:
-            reset = datetime.fromisoformat(item["resets_at"]).astimezone()
-            text += f" resets {reset:%Y-%m-%d %H:%M %Z}"
-        parts.append(text)
-    if record.get("stale"):
-        parts.append(f"Cached, live fetch failed; updated {record['updated_at']}")
-    return " | ".join(parts) if compact else f"Plan: {record['plan']}\n" + "\n".join(parts)
+        limits.append(limit)
+    plan = data.get("level")
+    return {"plan": plan if isinstance(plan, str) else None, "windows": windows, "details": {"limits": limits}}
 
 
 def add_commands(sub):
-    configure = sub.add_parser("configure", help="Remember an existing env file path")
+    configure = sub.add_parser("configure", help="Remember an existing env file that sets ZAI_API_KEY")
     configure.add_argument("--env-file", required=True)
 
 
@@ -127,13 +111,7 @@ def run_command(args):
     if args.command != "configure":
         return False
     path = str(Path(args.env_file).expanduser().resolve())
-    # Validate the selected file even if a key is present in the environment.
-    existing = os.environ.pop("ZAI_API_KEY", None)
-    try:
-        get_api_key(path)
-    finally:
-        if existing is not None:
-            os.environ["ZAI_API_KEY"] = existing
-    cache.write_json(config_path(), {"env_file": path})
-    print(f"Configured {config_path()}")
+    get_api_key(path)
+    paths.set_config(NAME, {"env_file": path})
+    print(f"Configured {paths.config_file()}")
     return True
