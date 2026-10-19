@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers so far: Antigravity (`agy-usage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Claude Code (`ccusage`) moves into this codebase and onto the same interface next, keeping its package name and command.
+Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -105,6 +105,20 @@ A provider whose login has no quota, such as Gemini CLI on an API key, reports `
 Sign in with the Antigravity CLI, `agy`. The tool reads its Google login from `~/.gemini/antigravity-cli/antigravity-oauth-token`. When agy has left the access token expired, the tool renews it with the OAuth client compiled into `agy` and saves it back, but only if agy has not renewed it meanwhile, so a renewal agy made is never undone. Requests carry the installed agy version, because the quota service leaves out the Gemini group for older clients. The account id is a fingerprint of the Google account in the login's id token.
 
 Quota comes from Google's Code Assist `retrieveUserQuotaSummary`. Each quota group, such as Gemini or Claude and GPT, has a `5-hour` and a `weekly` window, with the group as the window's `scope`; the plan is the paid tier's name, such as Google AI Ultra.
+
+## Claude Code
+
+Sign in with Claude Code. The tool reads its login from `.credentials.json` in Claude's config directory, `~/.claude` or `$CLAUDE_CONFIG_DIR`, and the account from Claude Code's `.claude.json`. When Claude Code has left the access token expired, the tool renews it and writes the rotated refresh token back, because Anthropic rotates refresh tokens and Claude Code would otherwise be signed out; it replaces the file only if Claude Code has not renewed it meanwhile. A request during which `/login` switched accounts is discarded. The account id is a fingerprint of Claude's account UUID, so config directories signed into the same account share one cache and one daemon's refreshes.
+
+The windows are the `5-hour` session and the `weekly` limit, plus a `weekly` window scoped to each model with its own weekly limit, such as Fable. An account without a subscription, or in an organization that turned off OAuth, is `unavailable`, which replaces its old windows in the cache and which `check` reports as expected.
+
+As Claude Code's status line, `ccusage statusline` reads the status JSON Claude Code pipes to it and starts the line with the directory, model and session cost. In `~/.claude/settings.json`:
+
+```json
+{"statusLine": {"type": "command", "command": "ccusage statusline"}}
+```
+
+To see several accounts in `clanker-usage`, add each extra config directory once: `ccusage configure --config-dir ~/.claude-b`.
 
 ## Codex
 

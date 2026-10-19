@@ -2,7 +2,9 @@
 
 
 class ExpectedUnavailable(RuntimeError):
-    """The account exists but its login has no quota to read, such as Gemini CLI on an API key.
+    """The account, or the login in use, has no quota to read: Gemini CLI on an API key, or a Claude
+    account without a subscription.
 
-    The document is unavailable as usual, but check reports expected-unavailable instead of an error.
+    The document is unavailable and, once the account is known, cached as such, replacing its old
+    windows. check reports expected-unavailable instead of an error.
     """

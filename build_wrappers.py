@@ -22,6 +22,11 @@ WRAPPERS = {
         "description": "Antigravity quota monitor",
         "keywords": ["antigravity", "agy", "gemini", "usage", "quota", "statusline", "cli"],
     },
+    "ccusage": {
+        "provider": "claude", "label": "Claude Code",
+        "description": "Claude Code usage limit monitor",
+        "keywords": ["claude", "claude-code", "anthropic", "usage", "rate-limits", "statusline", "cli"],
+    },
     "codex-cli-usage": {
         "provider": "codex", "label": "Codex",
         "description": "Codex rate limit monitor",

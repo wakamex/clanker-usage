@@ -1,0 +1,54 @@
+{
+  "usage": {
+    "limits": [
+      {
+        "kind": "session",
+        "group": "synthetic",
+        "percent": 1,
+        "severity": "synthetic",
+        "resets_at": "2001-01-01T00:00:00+00:00",
+        "scope": null,
+        "is_active": false
+      },
+      {
+        "kind": "weekly_all",
+        "group": "synthetic",
+        "percent": 1,
+        "severity": "synthetic",
+        "resets_at": "2001-01-01T00:00:00+00:00",
+        "scope": null,
+        "is_active": true
+      },
+      {
+        "kind": "weekly_scoped",
+        "group": "synthetic",
+        "percent": 1,
+        "severity": "synthetic",
+        "resets_at": "2001-01-01T00:00:00+00:00",
+        "scope": {
+          "model": {
+            "id": null,
+            "display_name": "Fable"
+          },
+          "surface": null
+        },
+        "is_active": false
+      }
+    ],
+    "extra_usage": {
+      "is_enabled": false,
+      "monthly_limit": null,
+      "used_credits": null,
+      "utilization": null,
+      "currency": null,
+      "decimal_places": null,
+      "disabled_reason": null,
+      "user_disabled": false,
+      "spend_limit_reached": false,
+      "credits_ever_enabled": false,
+      "daily": null,
+      "weekly": null
+    }
+  },
+  "plan": "synthetic"
+}

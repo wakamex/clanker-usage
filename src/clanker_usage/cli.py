@@ -1,7 +1,10 @@
 """Show the plan and quota of coding-agent accounts, read from each provider's own API."""
 
 import argparse
+import contextlib
 import json
+import os
+import select
 import signal
 import sys
 import time
@@ -56,6 +59,14 @@ def fetch(provider, account):
     return record
 
 
+def unavailable(provider, account, error):
+    """Save that the account has no quota to read, replacing its old windows, so they are not shown as current."""
+    record = document(provider, account, "unavailable", error=error, retrieved_at=now())
+    cache.write_json(paths.cache_file(provider.NAME, account), record)
+    paths.backoff_file(provider.NAME, account).unlink(missing_ok=True)
+    return record
+
+
 def backoff_seconds(failures):
     """How long repeated failures pause fetching: one minute, doubling up to 30 minutes."""
     return min(60 * 2 ** (failures - 1), 1800)
@@ -73,7 +84,7 @@ def load(provider, max_age=0):
         return document(provider, None, "unavailable", error=str(exc))
     previous = cached(provider, account)
     if previous and max_age > 0 and cache.is_fresh(previous, max_age):
-        return {**previous, "status": "cached"}
+        return previous if previous["status"] == "unavailable" else {**previous, "status": "cached"}
     backoff = paths.backoff_file(provider.NAME, account)
     failure = cache.read_json(backoff) or {}
     failures = failure.get("failures") if isinstance(failure.get("failures"), int) else 0
@@ -82,13 +93,15 @@ def load(provider, max_age=0):
     else:
         try:
             record = fetch(provider, account)
+        except ExpectedUnavailable as exc:
+            return unavailable(provider, account, str(exc))
         except FETCH_ERRORS as exc:
             error = str(exc)
             cache.write_json(backoff, {"failed_at": now(), "failures": failures + 1, "error": error})
         else:
             backoff.unlink(missing_ok=True)
             return record
-    if previous:
+    if previous and previous["status"] != "unavailable":
         return {**previous, "status": "stale", "error": error}
     return document(provider, account, "unavailable", error=error)
 
@@ -135,6 +148,36 @@ def render(provider, record):
         lines.append(line)
     note = status_note(record)
     return "\n".join(lines + ([f"  ({note})"] if note else []))
+
+
+def harness_prefix(status):
+    """The directory, model and cost from the status JSON a harness pipes to its statusline, as Claude Code does."""
+    if not isinstance(status, dict):
+        return ""
+    parts = []
+    directory = (status.get("workspace") or {}).get("current_dir") if isinstance(status.get("workspace"), dict) else None
+    if isinstance(directory, str) and directory:
+        home = str(Path.home())
+        parts.append("~" + directory[len(home):] if directory == home or directory.startswith(home + "/") else directory)
+    model = (status.get("model") or {}).get("display_name") if isinstance(status.get("model"), dict) else None
+    if isinstance(model, str) and model:
+        parts.append(f"[{model}]")
+    cost = (status.get("cost") or {}).get("total_cost_usd") if isinstance(status.get("cost"), dict) else None
+    if isinstance(cost, int | float) and not isinstance(cost, bool):
+        parts.append(f"${cost:.2f}")
+    return " ".join(parts) + " | " if parts else ""
+
+
+def read_harness_status():
+    """The JSON a harness writes to the statusline's stdin, or None when stdin is a terminal or holds none."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return None
+    try:
+        if os.name == "posix" and not select.select([sys.stdin], [], [], 0.5)[0]:
+            return None
+        return json.loads(sys.stdin.read() or "null")
+    except (OSError, ValueError):
+        return None
 
 
 def statusline(provider, record):
@@ -227,6 +270,10 @@ def daemon(provider, interval):
             if not (previous and cache.is_fresh(previous, interval)):
                 print(statusline(provider, fetch(provider, account)), flush=True)
             backoff = interval
+        except ExpectedUnavailable as exc:
+            # Such as an account without a subscription, which an hour rarely changes.
+            print(statusline(provider, unavailable(provider, account, str(exc))), flush=True)
+            backoff = max(interval, 3600)
         except ERRORS as exc:
             print(str(exc), file=sys.stderr, flush=True)
             backoff = min(backoff * 2, max(interval, 3600))
@@ -284,20 +331,35 @@ def run_provider(provider, args):
     if command == "json":
         print(json.dumps(record, indent=2, ensure_ascii=False))
     elif command == "statusline":
-        print(statusline(provider, record))
+        print(harness_prefix(read_harness_status()) + statusline(provider, record))
     else:
         print(render(provider, record))
     return 1 if record["status"] == "unavailable" else 0
 
 
 def show_all(max_age, as_json):
-    providers = list(PROVIDERS.values())
-    with ThreadPoolExecutor(len(providers)) as pool:
-        records = list(pool.map(lambda provider: load(provider, max_age), providers))
+    """Every account of every provider, including each config directory a provider was configured with."""
+    tasks = [(provider, selector) for provider in PROVIDERS.values()
+             for selector in (provider.selectors() if hasattr(provider, "selectors") else [None])]
+
+    def run(task):
+        provider, selector = task
+        with provider.using(selector) if selector is not None else contextlib.nullcontext():
+            return provider, load(provider, max_age)
+
+    with ThreadPoolExecutor(len(tasks)) as pool:
+        results = list(pool.map(run, tasks))
+    seen, rows = set(), []
+    for provider, record in results:
+        # Two config directories signed into one account show it once.
+        key = (provider.NAME, record["account"] or id(record))
+        if key not in seen:
+            seen.add(key)
+            rows.append((provider, record))
     if as_json:
-        print(json.dumps(records, indent=2, ensure_ascii=False))
+        print(json.dumps([record for _, record in rows], indent=2, ensure_ascii=False))
     else:
-        print(table(list(zip(providers, records))))
+        print(table(rows))
     return 0
 
 
