@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), OpenCode Go (`clanker-usage opencode`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
+Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), OpenCode Go (`opencode-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -152,7 +152,7 @@ Quota comes from Code Assist `retrieveUserQuota`, with one window per model, sco
 
 ## OpenCode Go
 
-Connect OpenCode Go in OpenCode with `/connect`. The tool reads the Go key OpenCode stores in `~/.local/share/opencode/auth.json` (under `$XDG_DATA_HOME` when set) and never changes the file. The account id is a fingerprint of the key. There is no separate package for OpenCode; use `clanker-usage opencode`.
+Connect OpenCode Go in OpenCode with `/connect`. The tool reads the Go key OpenCode stores in `~/.local/share/opencode/auth.json` (under `$XDG_DATA_HOME` when set) and never changes the file. The account id is a fingerprint of the key.
 
 The limits come from the OpenCode Console's `/console/api/go/status`, the call the console's Go page makes. It is not part of the documented Console API, so `check` is what notices when its format changes. Go's limits are dollar amounts: the `5-hour` and `weekly` windows allow 20% and 50% of the `monthly` amount, and `details.spend` keeps each window's used and total dollars. The plan is the subscription product, such as `go`.
 

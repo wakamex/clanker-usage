@@ -52,6 +52,11 @@ jobs:
       - uses: wakamex/release-actions/pypi-publish@stable
         with:
           working-directory: dist-wrappers/zcode-cli-usage
+      # opencode-cli-usage is new on PyPI and goes last: its pending publisher can be registered
+      # only after clanker-usage's first upload frees the repository's one pending slot.
+      - uses: wakamex/release-actions/pypi-publish@stable
+        with:
+          working-directory: dist-wrappers/opencode-cli-usage
 
   github-release:
     needs: publish

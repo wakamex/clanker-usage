@@ -14,7 +14,7 @@ from .. import cache as files, http
 
 NAME = "opencode"
 LABEL = "OpenCode Go"
-PACKAGE = "clanker-usage"
+PACKAGE = "opencode-cli-usage"
 DESCRIPTION = "Read OpenCode Go subscription limits with the Go API key OpenCode already holds."
 STATUS_URL = "https://opencode.ai/console/api/go/status"
 INTERVAL = 300
