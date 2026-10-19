@@ -26,7 +26,8 @@ def write_json(path, data):
     # mkdir(parents=True) gives only the last directory the mode, so create each missing one privately.
     for folder in reversed([path.parent, *path.parent.parents]):
         if not folder.exists():
-            folder.mkdir(mode=0o700)
+            # Another writer, such as a parallel provider in the all-accounts view, may create it first.
+            folder.mkdir(mode=0o700, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".usage-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:

@@ -170,6 +170,32 @@ class GeminiTests(Home):
         self.assertEqual(json.loads(gemini.oauth_file().read_text())["access_token"], "new")
 
 
+class GeminiClientTests(Home):
+    def install(self, files):
+        bundle = Path(self.temp.name) / "lib" / "gemini-cli" / "bundle"
+        bundle.mkdir(parents=True)
+        for name, text in files.items():
+            (bundle / name).write_text(text)
+        (bundle / "gemini.js").chmod(0o755)
+        folder = Path(self.temp.name) / "bin"
+        folder.mkdir()
+        (folder / "gemini").symlink_to(bundle / "gemini.js")
+        return patch.dict(os.environ, {"PATH": str(folder)})
+
+    def test_the_client_comes_from_the_bundle_of_current_releases(self):
+        with self.install({"gemini.js": "import './chunk-A.js';",
+                           "chunk-A.js": 'var CLOUD_SDK_CLIENT_ID = "other"; var OAUTH_CLIENT_ID = "1-abc.apps.googleusercontent.com";'
+                                         ' var OAUTH_CLIENT_SECRET = "secret-1"; var OAUTH_SCOPE = [];'}):
+            self.assertEqual(gemini.client({}), ("1-abc.apps.googleusercontent.com", "secret-1"))
+
+    def test_the_client_comes_from_oauth2_js_of_older_releases(self):
+        self.assertEqual(gemini.CLIENT_ID.search("const OAUTH_CLIENT_ID = '2-x.apps.googleusercontent.com';").group(2),
+                         "2-x.apps.googleusercontent.com")
+
+    def test_the_credentials_file_client_comes_first(self):
+        self.assertEqual(gemini.client({"client_id": "a", "client_secret": "b"}), ("a", "b"))
+
+
 class GoogleTests(Home):
     def test_account_ids_prefer_the_id_token(self):
         self.assertEqual(google.account_id(id_token("a"), "r1"), google.account_id(id_token("a"), "r2"))

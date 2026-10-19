@@ -23,8 +23,9 @@ AUTH_LABELS = {
     "oauth-personal": "Google login", "gemini-api-key": "Gemini API key", "vertex-ai": "Vertex AI",
     "cloud-shell": "Cloud Shell", "compute-default-credentials": "Compute ADC", "gateway": "Gateway",
 }
-CLIENT_ID = re.compile(r"const OAUTH_CLIENT_ID = '([^']+)';")
-CLIENT_SECRET = re.compile(r"const OAUTH_CLIENT_SECRET = '([^']+)';")
+# oauth2.js in older releases declares `const ... = '...'`; the bundle since about 0.60 declares `var ... = "..."`.
+CLIENT_ID = re.compile(r"""(?:const|var) OAUTH_CLIENT_ID = (['"])([^'"]+)\1;""")
+CLIENT_SECRET = re.compile(r"""(?:const|var) OAUTH_CLIENT_SECRET = (['"])([^'"]+)\1;""")
 
 
 def gemini_dir():
@@ -71,12 +72,14 @@ def account():
 
 
 def _oauth2_sources():
-    """Gemini CLI's oauth2.js, which holds its OAuth client, in the places npm and fnm install it."""
+    """The files that hold Gemini CLI's OAuth client: its bundle, or oauth2.js where npm and fnm install older releases."""
     relative = [Path("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
                 Path("node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js")]
     roots = []
     if binary := shutil.which("gemini"):
         resolved = Path(binary).resolve()
+        if resolved.parent.name == "bundle":
+            yield from sorted(resolved.parent.glob("*.js"))
         roots += [resolved.parent, resolved.parent.parent]
     if sys.platform == "win32":
         for folder in (Path.home() / "AppData/Roaming/fnm/node-versions", Path.home() / "AppData/Local/fnm_multishells"):
@@ -105,7 +108,7 @@ def client(credentials):
         except OSError:
             continue
         if (found_id := CLIENT_ID.search(text)) and (found_secret := CLIENT_SECRET.search(text)):
-            return found_id.group(1), found_secret.group(1)
+            return found_id.group(2), found_secret.group(2)
     raise RuntimeError("The Gemini CLI token expired and Gemini CLI's OAuth client was not found; run gemini and retry")
 
 

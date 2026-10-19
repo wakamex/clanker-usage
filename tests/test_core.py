@@ -90,6 +90,14 @@ class CacheTests(unittest.TestCase):
             self.path.write_bytes(content)
             self.assertIsNone(cache.read_json(self.path))
 
+    def test_parallel_writers_may_create_the_same_directories(self):
+        from concurrent.futures import ThreadPoolExecutor
+        folder = Path(self.temp.name) / "parallel" / "deep"
+        with ThreadPoolExecutor(16) as pool:
+            list(pool.map(lambda n: cache.write_json(folder / f"{n}.json", {"n": n}), range(64)))
+        self.assertEqual(len(list(folder.iterdir())), 64)
+        self.assertEqual(folder.parent.stat().st_mode & 0o777, 0o700)
+
     def test_freshness_rejects_future_and_malformed_times(self):
         now = datetime.now(timezone.utc)
         self.assertTrue(cache.is_fresh({"retrieved_at": (now - timedelta(seconds=10)).isoformat()}, 300))
