@@ -1,0 +1,30 @@
+{
+  "product": "go",
+  "renewalProduct": "go",
+  "resumability": "renewing",
+  "cancelAtPeriodEnd": false,
+  "access": {
+    "startsAt": "2001-01-01T00:00:00Z",
+    "endsAt": "2001-01-01T00:00:00Z",
+    "cancelAtPeriodEnd": false,
+    "meters": {
+      "fiveHour": {
+        "startsAt": "2001-01-01T00:00:00Z",
+        "resetsAt": "2001-01-01T00:00:00Z",
+        "limitMicroCents": "1000000000",
+        "usedMicroCents": "1"
+      },
+      "week": {
+        "startsAt": "2001-01-01T00:00:00Z",
+        "resetsAt": "2001-01-01T00:00:00Z",
+        "limitMicroCents": "1000000000",
+        "usedMicroCents": "100000000"
+      },
+      "month": {
+        "resetsAt": "2001-01-01T00:00:00Z",
+        "limitMicroCents": "1000000000",
+        "usedMicroCents": "100000000"
+      }
+    }
+  }
+}

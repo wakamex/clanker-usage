@@ -170,7 +170,8 @@ class StandardCommandTests(Home):
             self.assertEqual(cli.main(["--json"]), 0)
         statuses = {record["provider"]: record["status"] for record in json.loads(out.getvalue())}
         self.assertEqual(statuses, {"agy": "unavailable", "claude": "unavailable", "codex": "unavailable", "cursor": "unavailable", "deepseek": "unavailable",
-                                    "devin": "unavailable", "gemini": "unavailable", "zcode": "cached"})
+                                    "devin": "unavailable", "gemini": "unavailable", "opencode": "unavailable",
+                                    "zcode": "cached"})
 
     def test_refresh_fails_without_a_key(self):
         with patch.dict(os.environ, {"ZAI_API_KEY": ""}):

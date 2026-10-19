@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
+Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), OpenCode Go (`clanker-usage opencode`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -149,6 +149,12 @@ Usage comes from the server's `SeatManagementService/GetUserStatus`. The `daily`
 Quota exists only for a Google login. The tool chooses the login as Gemini CLI does: the `GOOGLE_GENAI_USE_GCA`, `GOOGLE_GENAI_USE_VERTEXAI`, `GEMINI_API_KEY` and Cloud Shell variables, then `.gemini/settings.json` in the current directory, then `~/.gemini/settings.json` (under `$GEMINI_CLI_HOME` when set). With any other login the document is `unavailable` and `check` reports `expected-unavailable`, which does not fail it. With a Google login it reads `~/.gemini/oauth_creds.json` and renews an expired token the same way as for Antigravity, using the OAuth client in the credentials file or in the installed Gemini CLI.
 
 Quota comes from Code Assist `retrieveUserQuota`, with one window per model, scoped to that model. `GOOGLE_CLOUD_PROJECT` selects the Code Assist project for accounts that need one, as in Gemini CLI.
+
+## OpenCode Go
+
+Connect OpenCode Go in OpenCode with `/connect`. The tool reads the Go key OpenCode stores in `~/.local/share/opencode/auth.json` (under `$XDG_DATA_HOME` when set) and never changes the file. The account id is a fingerprint of the key. There is no separate package for OpenCode; use `clanker-usage opencode`.
+
+The limits come from the OpenCode Console's `/console/api/go/status`, the call the console's Go page makes. It is not part of the documented Console API, so `check` is what notices when its format changes. Go's limits are dollar amounts: the `5-hour` and `weekly` windows allow 20% and 50% of the `monthly` amount, and `details.spend` keeps each window's used and total dollars. The plan is the subscription product, such as `go`.
 
 ## Z.ai Coding Plan
 
