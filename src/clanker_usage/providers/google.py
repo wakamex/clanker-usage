@@ -8,15 +8,21 @@ from datetime import timezone, datetime
 from .. import http
 
 
-def account_id(id_token, fallback):
-    """A one-way fingerprint of the Google account in an OpenID token, else of fallback, such as a refresh token."""
+def account_id(id_token, email=None, fallback=None):
+    """A one-way fingerprint of the Google account.
+
+    It comes from the subject of an OpenID token, else from the account's email, else from fallback,
+    such as a refresh token. A refresh token changes when it rotates, so it is only the last resort.
+    """
     try:
         subject = json.loads(base64.urlsafe_b64decode(id_token.split(".")[1] + "=="))["sub"]
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         subject = None
+    if not subject and isinstance(email, str) and email.strip():
+        subject = "email:" + email.strip().lower()
     source = subject or fallback
     if not isinstance(source, str) or not source:
-        raise RuntimeError("Google credentials have neither an id token nor a refresh token")
+        raise RuntimeError("Google credentials name no account: no id token, email or refresh token")
     return hashlib.sha256(source.encode()).hexdigest()[:16]
 
 

@@ -69,6 +69,14 @@ class AgyTests(Home):
         self.write_auth("access-2", "refresh-2", "2099-01-01T00:00:00Z")
         self.assertEqual(agy.account(), first)
 
+    def test_the_account_survives_rotation_when_agy_keeps_only_the_email(self):
+        for refresh in ("refresh-1", "refresh-2"):
+            cache.write_json(agy.token_file(), {"auth_method": "oauth", "id_token_email": "someone@example.com",
+                                                "token": {"access_token": "a", "refresh_token": refresh, "expiry": "2099-01-01T00:00:00Z"}})
+            ids = getattr(self, "_ids", []) + [agy.account()]
+            self._ids = ids
+        self.assertEqual(len(set(self._ids)), 1)
+
     def test_a_fresh_token_is_used_without_renewal(self):
         self.write_auth("access-1", "refresh-1", "2099-01-01T00:00:00Z")
         with patch.object(agy.oauth, "google_refresh", side_effect=AssertionError("renewed")):
@@ -197,11 +205,14 @@ class GeminiClientTests(Home):
 
 
 class GoogleTests(Home):
-    def test_account_ids_prefer_the_id_token(self):
-        self.assertEqual(google.account_id(id_token("a"), "r1"), google.account_id(id_token("a"), "r2"))
-        self.assertNotEqual(google.account_id(None, "r1"), google.account_id(None, "r2"))
+    def test_account_ids_prefer_the_id_token_then_the_email(self):
+        self.assertEqual(google.account_id(id_token("a"), fallback="r1"), google.account_id(id_token("a"), fallback="r2"))
+        # A rotated refresh token keeps the id when the email is known.
+        self.assertEqual(google.account_id(None, "One@Example.com", "r1"), google.account_id(None, "one@example.com", "r2"))
+        self.assertNotEqual(google.account_id(None, "one@example.com"), google.account_id(None, "two@example.com"))
+        self.assertNotEqual(google.account_id(None, fallback="r1"), google.account_id(None, fallback="r2"))
         with self.assertRaises(RuntimeError):
-            google.account_id("not-a-jwt", None)
+            google.account_id("not-a-jwt", None, None)
 
     def test_the_examples_match_the_recorded_shapes(self):
         self.assertLessEqual(shapes.paths(AGY), shapes.known_paths("agy"))

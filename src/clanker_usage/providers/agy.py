@@ -76,7 +76,8 @@ def identity(auth):
 
 def account():
     auth = read_auth()
-    return google.account_id(auth.get("id_token"), identity(auth)[1])
+    # Since about 2026-10-23 agy keeps the account's email instead of its id token.
+    return google.account_id(auth.get("id_token"), auth.get("id_token_email"), identity(auth)[1])
 
 
 def client_candidates():

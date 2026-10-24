@@ -76,7 +76,7 @@ def read_credentials():
 
 def account():
     credentials = read_credentials()
-    return google.account_id(credentials.get("id_token"), credentials.get("refresh_token"))
+    return google.account_id(credentials.get("id_token"), fallback=credentials.get("refresh_token"))
 
 
 def _oauth2_sources():
