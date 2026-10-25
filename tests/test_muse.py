@@ -47,7 +47,7 @@ class MuseTests(Home):
 
     def test_the_account_is_the_email_and_unsigned_is_unavailable(self):
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(cli.run("muse", ["json"]), 1)
+            self.assertEqual(cli.run("muse-code", ["json"]), 1)
         self.assertIn("not signed in", json.loads(out.getvalue())["error"])
         self.sign_in()
         first = muse.account()
@@ -55,7 +55,7 @@ class MuseTests(Home):
         self.assertEqual(muse.account(), first)
 
     def test_the_example_matches_the_recorded_shape(self):
-        self.assertLessEqual(shapes.paths(KEY), shapes.known_paths("muse"))
+        self.assertLessEqual(shapes.paths(KEY), shapes.known_paths("muse-code"))
 
 
 if __name__ == "__main__":

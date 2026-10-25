@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), Muse Code (`clanker-usage muse`), OpenCode Go (`opencode-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
+Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), Muse Code (`muse-code-usage`), OpenCode Go (`opencode-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -154,7 +154,7 @@ Quota comes from Code Assist `retrieveUserQuota`, with one window per model, sco
 
 ## Muse Code
 
-Sign in with Muse Code (`/login`). The tool reads Muse's Meta login from `~/.config/muse/auth.json` (under `$XDG_CONFIG_HOME` when set) and never changes it. Muse reports its usage only when it signs in and at the end of each model call, so the tool makes the sign-in's key request, `POST https://api.meta.ai/muse-code/key`, which uses no quota and, as checked with Muse 1.4.12, returns the key Muse already stored. The windows are the 5-hour window and the weekly limit, and the plan is the subscription tier, such as Muse Code Power Usage. The account id is a fingerprint of the account's email. Use `clanker-usage muse`.
+Sign in with Muse Code (`/login`). The tool reads Muse's Meta login from `~/.config/muse/auth.json` (under `$XDG_CONFIG_HOME` when set) and never changes it. Muse reports its usage only when it signs in and at the end of each model call, so the tool makes the sign-in's key request, `POST https://api.meta.ai/muse-code/key`, which uses no quota and, as checked with Muse 1.4.12, returns the key Muse already stored. The windows are the 5-hour window and the weekly limit, and the plan is the subscription tier, such as Muse Code Power Usage. The account id is a fingerprint of the account's email.
 
 ## OpenCode Go
 

@@ -57,6 +57,10 @@ jobs:
       - uses: wakamex/release-actions/pypi-publish@stable
         with:
           working-directory: dist-wrappers/opencode-cli-usage
+      # muse-code-usage is new on PyPI; its pending publisher was registered before the tag.
+      - uses: wakamex/release-actions/pypi-publish@stable
+        with:
+          working-directory: dist-wrappers/muse-code-usage
 
   github-release:
     needs: publish

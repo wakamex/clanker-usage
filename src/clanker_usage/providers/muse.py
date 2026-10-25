@@ -13,9 +13,9 @@ from pathlib import Path
 
 from .. import cache as files, http
 
-NAME = "muse"
+NAME = "muse-code"
 LABEL = "Muse Code"
-PACKAGE = "clanker-usage"
+PACKAGE = "muse-code-usage"
 DESCRIPTION = "Read Muse Code subscription limits with the login Muse Code already holds."
 KEY_URL = "https://api.meta.ai/muse-code/key"
 INTERVAL = 300

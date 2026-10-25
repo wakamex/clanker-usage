@@ -52,6 +52,11 @@ WRAPPERS = {
         "description": "Gemini CLI model quota monitor",
         "keywords": ["gemini", "gemini-cli", "google", "usage", "quota", "statusline", "cli"],
     },
+    "muse-code-usage": {
+        "provider": "muse-code", "label": "Muse Code",
+        "description": "Muse Code subscription limit monitor",
+        "keywords": ["muse", "muse-code", "meta", "usage", "quota", "statusline", "cli"],
+    },
     "opencode-cli-usage": {
         "provider": "opencode", "label": "OpenCode Go",
         "description": "OpenCode Go subscription limit monitor",
