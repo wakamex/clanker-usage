@@ -1,0 +1,29 @@
+{
+  "planInfo": {
+    "planName": "synthetic",
+    "billingStrategy": "BILLING_STRATEGY_QUOTA",
+    "monthlyPromptCredits": 1
+  },
+  "planStatus": {
+    "planStart": "2001-01-01T00:00:00Z",
+    "planEnd": "2001-01-01T00:00:00Z",
+    "availablePromptCredits": 1,
+    "dailyQuotaRemainingPercent": 1,
+    "weeklyQuotaRemainingPercent": 1,
+    "overageBalanceMicros": "-100000",
+    "dailyQuotaResetAtUnix": "1000000000",
+    "weeklyQuotaResetAtUnix": "1000000000"
+  },
+  "rateLimitHits": [
+    {
+      "at": "2001-01-01T00:00:00+00:00",
+      "resets_at": "2001-01-01T00:00:00+00:00",
+      "model": null
+    },
+    {
+      "at": "2001-01-01T00:00:00+00:00",
+      "resets_at": "2001-01-01T00:00:00+00:00",
+      "model": "synthetic"
+    }
+  ]
+}

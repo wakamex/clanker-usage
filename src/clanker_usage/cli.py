@@ -146,8 +146,17 @@ def render(provider, record):
             reset = datetime.fromisoformat(window["resets_at"]).astimezone()
             line += f", resets {reset:%Y-%m-%d %H:%M %Z}"
         lines.append(line)
+    lines += [f"  {note}" for note in provider_notes(provider, record)]
     note = status_note(record)
     return "\n".join(lines + ([f"  ({note})"] if note else []))
+
+
+def provider_notes(provider, record):
+    """What a provider adds about the document beyond its windows, such as Devin's free-model rate limits."""
+    try:
+        return provider.notes(record) if hasattr(provider, "notes") else []
+    except (KeyError, TypeError, ValueError):
+        return []
 
 
 def harness_prefix(status):
@@ -191,6 +200,7 @@ def statusline(provider, record):
         if until:
             part += f" ({until})"
         parts.append(part)
+    parts += provider_notes(provider, record)
     return " · ".join(parts) + (" (stale)" if record["status"] == "stale" else "")
 
 

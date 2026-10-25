@@ -142,10 +142,64 @@ class DevinTests(Home):
                                    "cascadeModelConfigData": {"clientModelConfigs": []}}}
         with patch.object(devin.http, "request_json", return_value=response) as request, \
                 patch.object(devin, "devin_version", return_value="1.2.3"):
-            self.assertEqual(devin.fetch(), DEVIN)
+            self.assertEqual(devin.fetch(), {**DEVIN, "rateLimitHits": []})
         url, headers, body = request.call_args.args
         self.assertEqual(url, "https://server.example" + devin.USER_STATUS_PATH)
         self.assertEqual(body["metadata"]["apiKey"], "local-key")
+
+
+# Lines in the format Devin's CLI wrote on 2026-10-24.
+HIT = ("{at}  WARN affogato::agent::control_loop: attempt={n} max=3 error=Inference(ServerError(message=Reached free "
+       "model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in "
+       "1 minute (at {reset} UTC).)) Transient inference error; retrying on next iteration")
+MODEL = "{at}  INFO run_repl_mode: chisel::repl_mode: model_input=swe-2-high resolved_model=SWE-2 resolved_model_uid=swe-2-high Model resolution complete"
+
+
+class DevinRateLimitTests(Home):
+    def write_log(self, folder, name, lines):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text("\n".join(lines) + "\n")
+
+    def test_retries_count_once_and_the_model_comes_from_the_log(self):
+        logs = devin.data_dir() / "cli" / "logs"
+        self.write_log(logs, "devin_1.log", [MODEL.format(at="2026-10-24T09:40:00.0Z")] +
+                       [HIT.format(at="2026-10-24T09:48:47.04Z", n=n, reset="09:51") for n in (1, 2, 3)])
+        self.write_log(logs, "devin_2.log", [HIT.format(at="2026-10-24T23:59:30.0Z", n=1, reset="00:01")])
+        hits = devin.rate_limit_hits(now=0)
+        self.assertEqual(hits, [
+            {"at": "2026-10-24T09:48:47+00:00", "resets_at": "2026-10-24T09:51:00+00:00", "model": "swe-2-high"},
+            # A reset after midnight UTC is on the next day; an ACP log names no model.
+            {"at": "2026-10-24T23:59:30+00:00", "resets_at": "2026-10-25T00:01:00+00:00", "model": None},
+        ])
+
+    def test_other_devin_homes_are_read_after_configure(self):
+        other = Path(self.temp.name) / "runs" / "a" / "devin" / "cli" / "logs"
+        self.write_log(other, "devin_1.log", [HIT.format(at="2026-10-24T09:48:47.0Z", n=1, reset="09:51")])
+        self.assertEqual(devin.rate_limit_hits(now=0), [])
+        with redirect_stdout(io.StringIO()):
+            cli.run("devin", ["configure", "--log-glob", str(Path(self.temp.name) / "runs" / "*" / "devin" / "cli" / "logs")])
+        self.assertEqual(len(devin.rate_limit_hits(now=0)), 1)
+
+    def test_limits_are_per_model_and_say_whether_they_still_apply(self):
+        hits = [{"at": "2026-10-24T09:00:00+00:00", "resets_at": "2026-10-24T09:02:00+00:00", "model": "swe-2-high"},
+                {"at": "2026-10-24T09:10:00+00:00", "resets_at": "2026-10-24T10:40:00+00:00", "model": "swe-2-high"},
+                {"at": "2026-10-24T09:20:00+00:00", "resets_at": "2026-10-24T09:21:00+00:00", "model": None}]
+        from datetime import datetime, timezone
+        limits = devin.free_model_limits(hits, datetime(2026, 10, 24, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual([(limit["model"], limit["resets_at"][11:16], limit["limited"]) for limit in limits],
+                         [(None, "09:21", False), ("swe-2-high", "10:40", True)])
+        body = devin.normalize({**DEVIN, "rateLimitHits": hits})
+        self.assertEqual(len(body["details"]["free_model_limit_hits"]), 3)
+        with self.assertRaises(ValueError):
+            devin.normalize({**DEVIN, "rateLimitHits": [{"at": "x"}]})
+
+    def test_a_current_limit_shows_in_status_and_statusline(self):
+        from datetime import datetime, timedelta, timezone
+        soon = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+        body = devin.normalize({**DEVIN, "rateLimitHits": [{"at": "2026-10-24T09:00:00+00:00", "resets_at": soon, "model": "swe-2-high"}]})
+        record = cli.document(devin, "a", "live", body)
+        self.assertIn("swe-2-high rate-limited until", cli.statusline(devin, record))
+        self.assertIn("swe-2-high rate-limited until", cli.render(devin, record))
 
 
 class BackoffTests(Home):
