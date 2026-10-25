@@ -1,0 +1,17 @@
+{
+  "is_subs_active": true,
+  "subs_tier_name": "Muse Code Power Usage",
+  "is_subs_upgrade_available": true,
+  "subs_usage": {
+    "window": {
+      "used_percent": 1,
+      "window_duration_mins": 300,
+      "resets_at": 1
+    },
+    "weekly": {
+      "used_percent": 1,
+      "resets_at": 1
+    },
+    "tier": "10000000000000000"
+  }
+}

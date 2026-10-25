@@ -8,6 +8,6 @@ add_commands(sub) and run_command(args) for its own setup command, and selectors
 when one person can have several accounts on one machine, such as Claude's config directories.
 """
 
-from . import agy, claude, codex, cursor, deepseek, devin, gemini, opencode, zcode
+from . import agy, claude, codex, cursor, deepseek, devin, gemini, muse, opencode, zcode
 
-PROVIDERS = {module.NAME: module for module in (agy, claude, codex, cursor, deepseek, devin, gemini, opencode, zcode)}
+PROVIDERS = {module.NAME: module for module in (agy, claude, codex, cursor, deepseek, devin, gemini, muse, opencode, zcode)}

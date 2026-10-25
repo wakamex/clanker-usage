@@ -2,7 +2,7 @@
 
 Monitor the plan and quota of your coding-agent accounts from the terminal: current usage, a one-line statusline, a daemon that keeps a cache fresh, and a check that fails loudly when a provider changes its API. Every provider has the same commands and the same JSON document.
 
-Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), OpenCode Go (`opencode-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
+Providers: Antigravity (`agy-usage`), Claude Code (`ccusage`), Codex (`codex-cli-usage`), Cursor (`cursor-cli-usage`), DeepSeek (`deepseek-harness-usage`), Devin (`devin-cli-usage`), Gemini CLI (`gemini-cli-usage`), Muse Code (`clanker-usage muse`), OpenCode Go (`opencode-cli-usage`) and Z.ai's Coding Plan (`zcode-cli-usage`). Each package name and command is a former standalone tool, now one interface over one codebase.
 
 clanker-usage reports what the provider says about the account: plan, quota windows and balance. Token use and cost from local session logs are the job of [clanker-analytics](https://github.com/wakamex/clanker-analytics).
 
@@ -151,6 +151,10 @@ Devin's free models also have a rate limit that this API does not report. When a
 Quota exists only for a Google login, and since 2026-06-18 Google allows that only for [Gemini Code Assist](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals) Standard and Enterprise subscriptions. Individual, Google AI Pro and Ultra accounts can no longer sign Gemini CLI in with Google; their quota is Antigravity's, which `agy-usage` reports. A Gemini API key has no quota to read. The tool chooses the login as Gemini CLI does: the `GOOGLE_GENAI_USE_GCA`, `GOOGLE_GENAI_USE_VERTEXAI`, `GEMINI_API_KEY` and Cloud Shell variables, then `.gemini/settings.json` in the current directory, then `~/.gemini/settings.json` (under `$GEMINI_CLI_HOME` when set). With any other login the document is `unavailable` and `check` reports `expected-unavailable`, which does not fail it. With a Google login it reads `~/.gemini/oauth_creds.json` and renews an expired token the same way as for Antigravity, using the OAuth client in the credentials file or in the installed Gemini CLI.
 
 Quota comes from Code Assist `retrieveUserQuota`, with one window per model, scoped to that model. `GOOGLE_CLOUD_PROJECT` selects the Code Assist project for accounts that need one, as in Gemini CLI.
+
+## Muse Code
+
+Sign in with Muse Code (`/login`). The tool reads Muse's Meta login from `~/.config/muse/auth.json` (under `$XDG_CONFIG_HOME` when set) and never changes it. Muse reports its usage only when it signs in and at the end of each model call, so the tool makes the sign-in's key request, `POST https://api.meta.ai/muse-code/key`, which uses no quota and, as checked with Muse 1.4.12, returns the key Muse already stored. The windows are the 5-hour window and the weekly limit, and the plan is the subscription tier, such as Muse Code Power Usage. The account id is a fingerprint of the account's email. Use `clanker-usage muse`.
 
 ## OpenCode Go
 
