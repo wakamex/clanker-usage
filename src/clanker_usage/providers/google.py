@@ -43,10 +43,16 @@ def tiers(load):
 
 
 def plan(load):
+    """The paid tier, else the current one, as "name (id)".
+
+    Tiers can share a name: Google's $100 and $200 Ultra tiers are both named "Google AI Ultra", and
+    only the id, such as g1-ultra-lite-tier for the $100 one, tells them apart.
+    """
     for key in ("paidTier", "currentTier"):
-        name = (load.get(key) or {}).get("name")
+        tier = load.get(key) or {}
+        name, tier_id = tier.get("name"), tier.get("id")
         if isinstance(name, str) and name:
-            return name
+            return f"{name} ({tier_id})" if isinstance(tier_id, str) and tier_id else name
     return None
 
 

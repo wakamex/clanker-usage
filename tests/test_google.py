@@ -45,7 +45,7 @@ class AgyTests(Home):
 
     def test_normalize(self):
         body = agy.normalize(AGY)
-        self.assertEqual(body["plan"], "Google AI Ultra")
+        self.assertEqual(body["plan"], "Google AI Ultra (g1-ultra-tier)")
         self.assertEqual([(w["name"], w["scope"], w["seconds"], w["used_pct"]) for w in body["windows"]], [
             ("weekly", "Gemini", 604800, 25.0), ("5-hour", "Gemini", 18000, 0.0), ("weekly", "Claude and GPT", 604800, 50.0)])
         self.assertEqual(body["windows"][0]["resets_at"], "2026-10-25T00:00:00+00:00")
@@ -123,7 +123,7 @@ class GeminiTests(Home):
 
     def test_normalize(self):
         body = gemini.normalize(GEMINI)
-        self.assertEqual(body["plan"], "Gemini Code Assist")
+        self.assertEqual(body["plan"], "Gemini Code Assist (standard-tier)")
         self.assertEqual(body["windows"], [{"name": "gemini-3.5-pro", "seconds": None, "scope": "gemini-3.5-pro",
                                             "used_pct": 10.0, "resets_at": "2026-10-20T07:00:00+00:00"}])
         self.assertEqual(body["details"]["models"]["gemini-3.5-pro"], {"remaining": 90, "token_type": "REQUESTS"})
@@ -205,6 +205,13 @@ class GeminiClientTests(Home):
 
 
 class GoogleTests(Home):
+    def test_tiers_with_the_same_name_have_different_plans(self):
+        lite = {"paidTier": {"id": "g1-ultra-lite-tier", "name": "Google AI Ultra"}}
+        full = {"paidTier": {"id": "another-ultra-tier", "name": "Google AI Ultra"}}
+        self.assertEqual(google.plan(lite), "Google AI Ultra (g1-ultra-lite-tier)")
+        self.assertNotEqual(google.plan(lite), google.plan(full))
+        self.assertEqual(google.plan({"currentTier": {"name": "Antigravity"}}), "Antigravity")
+
     def test_account_ids_prefer_the_id_token_then_the_email(self):
         self.assertEqual(google.account_id(id_token("a"), fallback="r1"), google.account_id(id_token("a"), fallback="r2"))
         # A rotated refresh token keeps the id when the email is known.

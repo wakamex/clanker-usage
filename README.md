@@ -104,7 +104,7 @@ A provider whose login has no quota, such as Gemini CLI on an API key, reports `
 
 Sign in with the Antigravity CLI, `agy`. The tool reads its Google login from `~/.gemini/antigravity-cli/antigravity-oauth-token`. When agy has left the access token expired, the tool renews it with the OAuth client compiled into `agy` and saves it back, but only if agy has not renewed it meanwhile, so a renewal agy made is never undone. Requests carry the installed agy version, because the quota service leaves out the Gemini group for older clients. The account id is a fingerprint of the Google account in the login's id token.
 
-Quota comes from Google's Code Assist `retrieveUserQuotaSummary`. Each quota group, such as Gemini or Claude and GPT, has a `5-hour` and a `weekly` window, with the group as the window's `scope`; the plan is the paid tier's name, such as Google AI Ultra.
+Quota comes from Google's Code Assist `retrieveUserQuotaSummary`. Each quota group, such as Gemini or Claude and GPT, has a `5-hour` and a `weekly` window, with the group as the window's `scope`; the plan is the paid tier's name and id, such as `Google AI Ultra (g1-ultra-lite-tier)`, since Google gives its $100 and $200 Ultra tiers the same name.
 
 ## Claude Code
 
