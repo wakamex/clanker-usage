@@ -6,7 +6,6 @@ import json
 import math
 import os
 import queue
-import shutil
 import subprocess
 import threading
 import time
@@ -14,7 +13,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from .. import cache as files, http
+from .. import cache as files, http, paths
 
 NAME = "codex"
 LABEL = "Codex"
@@ -93,7 +92,7 @@ def _response(messages, request_id, deadline):
 
 def via_app_server():
     """account/rateLimits/read from `codex app-server`, or None when Codex is missing or does not answer."""
-    codex = shutil.which("codex")
+    codex = paths.executable("codex")
     if not codex:
         return None
     deadline = time.monotonic() + APP_SERVER_TIMEOUT

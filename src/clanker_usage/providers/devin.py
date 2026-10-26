@@ -6,7 +6,6 @@ import math
 import os
 import re
 import time
-import shutil
 import subprocess
 import tomllib
 import urllib.parse
@@ -122,16 +121,21 @@ def account():
     return hashlib.sha256(credentials()[0].encode()).hexdigest()[:16]
 
 
+# Devin's server answers HTTP 500 when the client version is not a version, so a host without the
+# devin command sends this recent one.
+FALLBACK_VERSION = "3000.11.205"
+
+
 def devin_version():
-    executable = shutil.which("devin")
+    executable = paths.executable("devin")
     if not executable:
-        return "unknown"
+        return FALLBACK_VERSION
     try:
         result = subprocess.run([executable, "version"], capture_output=True, text=True, timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
-        return "unknown"
+        return FALLBACK_VERSION
     match = re.search(r"\b(\d+(?:\.\d+)+)\b", result.stdout)
-    return match.group(1) if match else "unknown"
+    return match.group(1) if match else FALLBACK_VERSION
 
 
 def fetch():

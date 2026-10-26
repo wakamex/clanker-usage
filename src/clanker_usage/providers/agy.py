@@ -2,13 +2,12 @@
 
 import os
 import re
-import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
 
-from .. import cache as files, http, oauth
+from .. import cache as files, http, oauth, paths
 from . import google
 
 NAME = "agy"
@@ -29,13 +28,7 @@ def token_file():
 
 
 def agy_binary():
-    found = shutil.which("agy")
-    if found:
-        return Path(found)
-    for candidate in (Path.home() / ".local/bin/agy", Path.home() / "bin/agy", Path("/usr/local/bin/agy"), Path("/usr/bin/agy")):
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    return None
+    return paths.executable("agy")
 
 
 @cache

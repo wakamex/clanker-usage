@@ -202,6 +202,25 @@ class DevinRateLimitTests(Home):
         self.assertIn("swe-2-high rate-limited until", cli.render(devin, record))
 
 
+class ExecutableTests(Home):
+    def test_harness_commands_are_found_without_local_bin_on_path(self):
+        """A systemd user service's PATH leaves out ~/.local/bin, where Devin installs itself."""
+        import os
+        import stat
+        folder = Path(os.environ["HOME"]) / ".local" / "bin"
+        folder.mkdir(parents=True)
+        fake = folder / "devin"
+        fake.write_text("#!/bin/sh\necho 'devin 3000.12.1 (abc)'\n")
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        with patch.dict(os.environ, {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"}):
+            self.assertEqual(paths.executable("devin"), fake)
+            self.assertEqual(devin.devin_version(), "3000.12.1")
+        fake.unlink()
+        with patch.dict(os.environ, {"PATH": ""}):
+            # Devin's server rejects a client version that is not a version.
+            self.assertEqual(devin.devin_version(), devin.FALLBACK_VERSION)
+
+
 class BackoffTests(Home):
     def test_a_recent_failure_pauses_statusline_fetches_but_not_json(self):
         failing = patch.object(zcode, "fetch", side_effect=RuntimeError("Could not connect to the usage API"))

@@ -1,6 +1,7 @@
 """Where clanker-usage keeps its cache, check state and configuration."""
 
 import os
+import shutil
 from pathlib import Path
 
 from . import cache
@@ -36,3 +37,18 @@ def set_config(provider, section):
     data = cache.read_json(config_file()) or {}
     data[provider] = section
     cache.write_json(config_file(), data)
+
+
+def executable(name):
+    """A harness's command: on PATH, else where user installers put it.
+
+    A systemd user service runs with a PATH that leaves out ~/.local/bin, where Claude Code, Devin,
+    agy and Gemini CLI install themselves, so PATH alone misses them under a daemon.
+    """
+    if found := shutil.which(name):
+        return Path(found)
+    for folder in (Path.home() / ".local/bin", Path.home() / "bin", Path("/usr/local/bin"), Path("/usr/bin")):
+        candidate = folder / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None

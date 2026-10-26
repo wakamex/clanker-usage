@@ -8,12 +8,11 @@ key has no quota to read.
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from pathlib import Path
 
-from .. import cache as files, http, oauth
+from .. import cache as files, http, oauth, paths
 from ..errors import ExpectedUnavailable
 from . import google
 
@@ -84,7 +83,7 @@ def _oauth2_sources():
     relative = [Path("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
                 Path("node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js")]
     roots = []
-    if binary := shutil.which("gemini"):
+    if binary := paths.executable("gemini"):
         resolved = Path(binary).resolve()
         if resolved.parent.name == "bundle":
             yield from sorted(resolved.parent.glob("*.js"))
