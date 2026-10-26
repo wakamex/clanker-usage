@@ -29,13 +29,20 @@ class MuseTests(Home):
     def test_no_subscription_and_invalid_usage(self):
         self.assertEqual(muse.normalize({"is_subs_active": False})["windows"], [])
         for change in (lambda k: k.pop("subs_usage"), lambda k: k["subs_usage"].update(window=None, weekly=None),
-                       lambda k: k["subs_usage"]["weekly"].update(used_percent=101),
+                       lambda k: k["subs_usage"]["weekly"].update(used_percent=-1),
                        lambda k: k["subs_usage"]["window"].update(window_duration_mins=0),
                        lambda k: k["subs_usage"]["window"].update(resets_at="soon")):
             key = copy.deepcopy(KEY)
             change(key)
             with self.assertRaises(ValueError):
                 muse.normalize(key)
+
+    def test_a_used_up_window_reads_100_and_keeps_the_reported_share(self):
+        key = copy.deepcopy(KEY)
+        key["subs_usage"]["window"]["used_percent"] = 101
+        body = muse.normalize(key)
+        self.assertEqual([w["used_pct"] for w in body["windows"]], [100, 5])
+        self.assertEqual(body["details"]["reported_used_percent"], {"5-hour": 101})
 
     def test_fetch_sends_the_access_token_and_keeps_no_key_or_names(self):
         self.sign_in()

@@ -53,8 +53,9 @@ def fetch():
 
 
 def percent(value):
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value) or not 0 <= value <= 100:
-        raise ValueError("Invalid Muse Code usage: used_percent must be between 0 and 100")
+    # Muse reports a little over 100, such as 101, once a window is used up.
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value) or not 0 <= value <= 1000:
+        raise ValueError("Invalid Muse Code usage: used_percent must be a percentage")
     return value
 
 
@@ -88,6 +89,12 @@ def normalize(payload):
                         "used_pct": percent(weekly.get("used_percent")), "resets_at": reset(weekly.get("resets_at"))})
     if not windows:
         raise ValueError("Muse Code key response has no usage windows")
+    details = {"upgrade_available": bool(payload.get("is_subs_upgrade_available"))}
+    # usage-v1 shares run from 0 to 100, so a used-up window reads 100 and details keep what Muse reported.
+    over = {window["name"]: window["used_pct"] for window in windows if window["used_pct"] > 100}
+    if over:
+        details["reported_used_percent"] = over
+        for window in windows:
+            window["used_pct"] = min(window["used_pct"], 100)
     plan = payload.get("subs_tier_name")
-    return {"plan": plan if isinstance(plan, str) and plan else None, "windows": windows,
-            "details": {"upgrade_available": bool(payload.get("is_subs_upgrade_available"))}}
+    return {"plan": plan if isinstance(plan, str) and plan else None, "windows": windows, "details": details}
