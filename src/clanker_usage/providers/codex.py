@@ -33,19 +33,21 @@ def auth_file():
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
 
 
-def read_auth():
-    auth = files.read_json(auth_file())
+def read_auth(path=None):
+    path = path or auth_file()
+    auth = files.read_json(path)
     tokens = auth.get("tokens") if auth else None
     if not isinstance(tokens, dict) or not tokens.get("access_token"):
-        raise RuntimeError(f"Codex is not signed in: no tokens in {auth_file()}; run codex login")
+        raise RuntimeError(f"Codex is not signed in: no tokens in {path}; run codex login")
     return tokens
 
 
-def account():
-    """A one-way fingerprint of Codex's ChatGPT account id."""
-    account_id = read_auth().get("account_id")
+def account(path=None):
+    """A one-way fingerprint of Codex's ChatGPT account id, by default from the current CODEX_HOME."""
+    path = path or auth_file()
+    account_id = read_auth(path).get("account_id")
     if not isinstance(account_id, str) or not account_id:
-        raise RuntimeError(f"No ChatGPT account id in {auth_file()}")
+        raise RuntimeError(f"No ChatGPT account id in {path}")
     return hashlib.sha256(account_id.encode()).hexdigest()[:16]
 
 

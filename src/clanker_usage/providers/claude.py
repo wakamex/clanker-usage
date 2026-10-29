@@ -63,19 +63,30 @@ def account_file():
     return (Path(selected) if selected else Path.home()) / ".claude.json"
 
 
-def account_uuid():
+def account_uuid(path=None):
+    """The account UUID in Claude Code's .claude.json, by default the current config directory's."""
+    path = path or account_file()
     try:
-        uuid = (json.loads(account_file().read_text()).get("oauthAccount") or {}).get("accountUuid")
+        uuid = (json.loads(Path(path).read_text()).get("oauthAccount") or {}).get("accountUuid")
     except (OSError, ValueError, AttributeError):
         uuid = None
     if not isinstance(uuid, str) or not uuid:
-        raise RuntimeError(f"Claude Code is not signed in: no account in {account_file()}")
+        raise RuntimeError(f"Claude Code is not signed in: no account in {path}")
     return uuid
 
 
-def account():
+def account(path=None):
     """A one-way fingerprint of the Claude account, shared by every config directory signed into it."""
-    return hashlib.sha256(account_uuid().encode()).hexdigest()[:16]
+    return hashlib.sha256(account_uuid(path).encode()).hexdigest()[:16]
+
+
+def account_file_in(home):
+    """The .claude.json for a config directory: inside it, as with CLAUDE_CONFIG_DIR, or beside the default ~/.claude."""
+    home = Path(home)
+    inside = home / ".claude.json"
+    if not inside.exists() and home.resolve() == (Path.home() / ".claude").resolve():
+        return Path.home() / ".claude.json"
+    return inside
 
 
 def read_credentials():

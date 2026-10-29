@@ -89,6 +89,37 @@ clanker-usage check               # check every provider
 
 The `XDG_CACHE_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME` variables move them. Caches never contain a credential.
 
+## Python API
+
+Other programs can read the cached documents without running a command, for example to decide whether to start an agent:
+
+```python
+import clanker_usage
+
+account = clanker_usage.account("claude", "/home/me/.claude")   # the account a credential home is signed into
+document = clanker_usage.read("claude", account)                 # its cached usage-v1 document, or None
+for document in clanker_usage.documents("codex"):                # every cached Codex account
+    print(document["account"], document["windows"])
+```
+
+- `read(provider, account)` returns the cached usage-v1 document, or `None` when there is no usable one: never cached, unreadable, or not a usage-v1 document for that account. A document whose `status` is `unavailable` is returned, because it is a reading: the account exists but has no quota to read.
+- `documents(provider)` returns every cached document of a provider.
+- `account(provider, home)` returns the account id that a credential home is signed into, computed from local files without a network request. `home` is the directory holding the provider's credential file: for `claude`, the config directory (`CLAUDE_CONFIG_DIR`, or `~/.claude`, whose `.claude.json` Claude Code keeps at `~/.claude.json`); for `codex`, `CODEX_HOME` or `~/.codex`; for `agy`, the directory holding `antigravity-oauth-token`. It raises `clanker_usage.AccountUnknown` when it cannot tell, such as no login or unreadable files, or an agy token with neither an id token nor an email, and `ValueError` for other providers.
+
+All three read local files only. The daemons keep the documents current, so a reader should check `retrieved_at` itself: when a fetch fails, the cached file keeps its last successful document, with its original `retrieved_at`.
+
+### What stays stable
+
+From version 0.5.0, while `schema` is `usage-v1`, these keep their names, types and meanings in every release; a change to any of them comes with a new `schema` value:
+
+- the functions `read`, `documents` and `account`, their arguments, and `AccountUnknown`;
+- the document fields `schema`, `provider`, `account`, `plan`, `status`, `error`, `retrieved_at`, `windows`, `balance` and `details`, and each window's `name`, `seconds`, `scope`, `used_pct` and `resets_at`;
+- `status` values `live` and `unavailable` in cached files;
+- `used_pct` from 0 to 100, `seconds` a whole number or null, times in ISO 8601 UTC;
+- Devin's `details.free_model_limits`, each with `model`, `last_hit_at`, `resets_at` and `limited`.
+
+Other `details` fields may change in any release. The values of `plan`, window `name` and `scope` are the provider's own words and follow the provider. An account id changes only when the provider stops supplying what it is computed from, as agy did in October 2026, and the release notes say so.
+
 ## Checking for provider changes
 
 `check` fetches without the cache and reports each provider as one of:

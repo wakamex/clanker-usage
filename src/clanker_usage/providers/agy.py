@@ -50,10 +50,11 @@ def user_agent():
     return f"antigravity/cli/{version or FALLBACK_VERSION} (aidev_client; os_type=linux; arch=amd64)"
 
 
-def read_auth():
-    auth = files.read_json(token_file())
+def read_auth(path=None):
+    path = path or token_file()
+    auth = files.read_json(path)
     if not auth:
-        raise RuntimeError(f"Antigravity is not signed in: no token at {token_file()}")
+        raise RuntimeError(f"Antigravity is not signed in: no token at {path}")
     return auth
 
 
@@ -67,8 +68,9 @@ def identity(auth):
     return payload.get("access_token"), payload.get("refresh_token") or auth.get("refresh_token")
 
 
-def account():
-    auth = read_auth()
+def account(path=None):
+    """A one-way fingerprint of the Google account, by default from agy's own token file."""
+    auth = read_auth(path)
     # Since about 2026-10-23 agy keeps the account's email instead of its id token.
     return google.account_id(auth.get("id_token"), auth.get("id_token_email"), identity(auth)[1])
 
