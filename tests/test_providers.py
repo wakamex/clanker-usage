@@ -126,6 +126,14 @@ class DevinTests(Home):
             with self.assertRaises(ValueError):
                 devin.normalize(response)
 
+    def test_a_used_up_window_arrives_as_its_reset_alone(self):
+        # As on 2026-10-31: weekly at 100% used, so Devin left out weeklyQuotaRemainingPercent.
+        status = {key: value for key, value in DEVIN["planStatus"].items() if key != "weeklyQuotaRemainingPercent"}
+        body = devin.normalize({**DEVIN, "planStatus": status})
+        self.assertEqual([(w["name"], w["used_pct"]) for w in body["windows"]], [("daily", 12.5), ("weekly", 100)])
+        status.pop("weeklyQuotaResetAtUnix")
+        self.assertEqual([w["name"] for w in devin.normalize({**DEVIN, "planStatus": status})["windows"]], ["daily"])
+
     def test_credentials(self):
         self.write_credentials('windsurf_api_key = "local-key"\napi_server_url = "https://server.example/"\n')
         self.assertEqual(devin.credentials(), ("local-key", "https://server.example"))

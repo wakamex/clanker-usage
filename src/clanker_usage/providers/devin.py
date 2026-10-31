@@ -175,12 +175,16 @@ def normalize(payload):
     windows = []
     for name, seconds in WINDOWS:
         remaining = status.get(f"{name}QuotaRemainingPercent")
+        reset = status.get(f"{name}QuotaResetAtUnix")
         if remaining is None:
-            continue
+            # Devin's API encodes protobuf as JSON, which leaves out a field whose value is zero, so a
+            # used-up window arrives as its reset time alone.
+            if reset is None:
+                continue
+            remaining = 0
         remaining = number(remaining)
         if not 0 <= remaining <= 100:
             raise ValueError(f"Invalid Devin usage response: {name} quota outside 0 to 100")
-        reset = status.get(f"{name}QuotaResetAtUnix")
         windows.append({"name": name, "seconds": seconds, "scope": None, "used_pct": round(100 - remaining, 6),
                         "resets_at": datetime.fromtimestamp(number(reset), timezone.utc).isoformat() if reset else None})
     credits = {key: number(status[key]) for key in CREDIT_KEYS if key in status}
