@@ -185,7 +185,7 @@ Quota comes from Code Assist `retrieveUserQuota`, with one window per model, sco
 
 ## Muse Code
 
-Sign in with Muse Code (`/login`). The tool reads Muse's Meta login from `~/.config/muse/auth.json` (under `$XDG_CONFIG_HOME` when set) and never changes it. Muse reports its usage only when it signs in and at the end of each model call, so the tool makes the sign-in's key request, `POST https://api.meta.ai/muse-code/key`, which uses no quota and, as checked with Muse 1.4.12, returns the key Muse already stored. The windows are the 5-hour window and the weekly limit, and the plan is the subscription tier, such as Muse Code Power Usage. The account id is a fingerprint of the account's email.
+Sign in with Muse Code (`/login`). The tool reads Muse's Meta login from `~/.config/muse/auth.json` (under `$XDG_CONFIG_HOME` when set) and never changes it. Muse reports its usage only when it signs in and at the end of each model call, so the tool makes the sign-in's key request, `POST https://api.meta.ai/muse-code/key`, which uses no quota and, as checked with Muse 1.4.12, returns the key Muse already stored. The windows are the 5-hour window and the weekly limit, and the plan is the subscription tier, such as Muse Code Power Usage. Since 2026-10-28, Meta's key response no longer includes usage, for any client, and Muse itself sees usage only at the end of a model call. The tool does not make model calls, since they use quota, so Muse Code reads as `unavailable` with that reason, and `check` reports `expected-unavailable`. The daemon still asks once an hour, so readings resume if Meta restores the field. The account id is a fingerprint of the account's email.
 
 ## OpenCode Go
 
