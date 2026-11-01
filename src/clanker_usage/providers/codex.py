@@ -24,7 +24,7 @@ USAGE_URL = "https://chatgpt.com/backend-api/codex/usage"
 BROWSER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 INTERVAL = 300
 APP_SERVER_TIMEOUT = 20
-KEEP = frozenset({"source", "planType", "plan_type", "limitId", "limitName", "limit_name", "windowDurationMins",
+KEEP = frozenset({"source", "planType", "plan_type", "limitId", "limitName", "limit_name", "windowDurationMins", "rateLimitReachedType",
                   "limit_window_seconds", "has_credits", "unlimited"})
 WINDOWS = (("5-hour", 5 * 3600), ("daily", 86400), ("weekly", 7 * 86400), ("monthly", 30 * 86400), ("annual", 365 * 86400))
 
