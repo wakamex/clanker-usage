@@ -49,7 +49,7 @@ class MuseTests(Home):
             self.assertEqual(cli.run("muse-code", ["json"]), 1)
         document = json.loads(out.getvalue().split("muse-code: expected-unavailable")[1].split("\n", 2)[2])
         self.assertEqual((document["status"], document["windows"]), ("unavailable", []))
-        self.assertIn("2026-10-28", document["error"])
+        self.assertIn("did not include usage", document["error"])
 
     def test_a_used_up_window_reads_100_and_keeps_the_reported_share(self):
         key = copy.deepcopy(KEY)

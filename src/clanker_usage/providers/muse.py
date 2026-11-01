@@ -2,8 +2,8 @@
 
 Muse reports its usage in only two places: the key call it makes at /login, and an event at the end
 of every model call. This provider makes the key call, which uses no quota and returns the API key
-already stored (checked with Muse 1.4.12). Since 2026-10-28 that response no longer carries usage,
-so the document is unavailable until Meta restores it; the provider makes no model calls.
+already stored (checked with Muse 1.4.12 and 1.4.14). Meta's server sometimes leaves usage out of that
+response; the document is then unavailable until it returns, and the provider makes no model calls.
 """
 
 import hashlib
@@ -75,10 +75,11 @@ def normalize(payload):
         return {"plan": None, "windows": [], "details": {}}
     usage = payload.get("subs_usage")
     if usage is None:
-        # Since 2026-10-28 the key response leaves usage out for every client; Muse itself now sees
-        # usage only at the end of model calls, which this tool does not make, since they use quota.
-        raise ExpectedUnavailable("Meta stopped reporting Muse Code usage outside model calls on 2026-10-28; "
-                                  "Muse's /usage shows it after a model call")
+        # Meta's server sometimes leaves usage out, as from 2026-10-28 to 2026-11-01 for every client.
+        # Muse then sees usage only at the end of model calls, which this tool does not make, since
+        # they use quota.
+        raise ExpectedUnavailable("Muse Code's key response did not include usage this time, as Meta's server "
+                                  "sometimes does; Muse's /usage shows it after a model call")
     if not isinstance(usage, dict):
         raise ValueError("Muse Code key response has malformed subscription usage")
     windows = []
