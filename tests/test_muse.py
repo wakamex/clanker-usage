@@ -28,7 +28,7 @@ class MuseTests(Home):
 
     def test_no_subscription_and_invalid_usage(self):
         self.assertEqual(muse.normalize({"is_subs_active": False})["windows"], [])
-        for change in (lambda k: k.update(subs_usage="malformed"), lambda k: k["subs_usage"].update(window=None, weekly=None),
+        for change in (lambda k: k.pop("subs_usage"), lambda k: k["subs_usage"].update(window=None, weekly=None),
                        lambda k: k["subs_usage"]["weekly"].update(used_percent=-1),
                        lambda k: k["subs_usage"]["window"].update(window_duration_mins=0),
                        lambda k: k["subs_usage"]["window"].update(resets_at="soon")):
@@ -36,20 +36,6 @@ class MuseTests(Home):
             change(key)
             with self.assertRaises(ValueError):
                 muse.normalize(key)
-
-    def test_a_key_response_without_usage_is_expected_unavailable(self):
-        # As since 2026-10-28: an active subscription and its tier, but no subs_usage.
-        from clanker_usage.errors import ExpectedUnavailable
-        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
-        with self.assertRaises(ExpectedUnavailable):
-            muse.normalize(key)
-        self.sign_in()
-        with patch.object(muse, "fetch", return_value=key), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(cli.check(["muse-code"]), 0)
-            self.assertEqual(cli.run("muse-code", ["json"]), 1)
-        document = json.loads(out.getvalue().split("muse-code: expected-unavailable")[1].split("\n", 2)[2])
-        self.assertEqual((document["status"], document["windows"]), ("unavailable", []))
-        self.assertIn("did not include usage", document["error"])
 
     def test_a_used_up_window_reads_100_and_keeps_the_reported_share(self):
         key = copy.deepcopy(KEY)
