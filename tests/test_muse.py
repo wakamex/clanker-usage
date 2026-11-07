@@ -2,6 +2,7 @@ import copy
 import io
 import json
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from clanker_usage import cache, cli, shapes
@@ -68,3 +69,58 @@ class MuseTests(Home):
 if __name__ == "__main__":
     import unittest
     unittest.main()
+
+
+# The last line of `muse exec --json` output as aop keeps it, in the format seen in a 2026-10-26 run, with synthetic values.
+RUN_LINE = ('{"type":"run_usage","calls":163,"allowance":{"as_of_ms":%d,"source":"stream","tier":null,'
+            '"weekly":{"resets_at_ms":1793577600000,"used_percent":34},'
+            '"window":{"resets_at_ms":1793041182000,"used_percent":51}},"cancelled_calls":0}')
+
+
+class RecordedRunTests(Home):
+    sign_in = MuseTests.sign_in
+
+    def write_run(self, name, as_of_ms):
+        path = Path(self.temp.name) / "runs" / name / "events.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text('{"type":"started"}\n' + RUN_LINE % as_of_ms + "\n")
+        return path
+
+    def configure(self):
+        with redirect_stdout(io.StringIO()):
+            cli.run("muse-code", ["configure", "--run-glob", str(Path(self.temp.name) / "runs" / "*" / "events.jsonl")])
+
+    def test_a_key_response_without_usage_falls_back_to_the_newest_recorded_run(self):
+        self.sign_in()
+        self.write_run("old", 1793000000000)
+        self.write_run("new", 1793027881478)
+        self.configure()
+        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
+        with patch.object(muse.http, "request_json", return_value=key):
+            payload = muse.fetch()
+        self.assertEqual(payload["run_allowance"]["as_of_ms"], 1793027881478)
+        with patch.object(muse, "fetch", return_value=payload), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.run("muse-code", ["json"]), 0)
+        document = json.loads(out.getvalue())
+        self.assertEqual(document["retrieved_at"], "2026-10-26T15:18:01+00:00")
+        self.assertEqual([(w["name"], w["seconds"], w["used_pct"]) for w in document["windows"]],
+                         [("5-hour", 18000, 51), ("weekly", 604800, 34)])
+        self.assertEqual(document["details"]["source"], "recorded run")
+
+    def test_a_recorded_run_never_replaces_a_newer_reading(self):
+        self.sign_in()
+        with patch.object(muse, "fetch", return_value=KEY), redirect_stdout(io.StringIO()):
+            cli.run("muse-code", ["refresh"])
+        self.write_run("old", 1793000000000)
+        self.configure()
+        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
+        with patch.object(muse.http, "request_json", return_value=key), redirect_stdout(io.StringIO()) as out:
+            cli.run("muse-code", ["json"])
+        document = json.loads(out.getvalue())
+        self.assertEqual(document["status"], "stale")
+        self.assertNotIn("source", document["details"])
+
+    def test_without_runs_a_missing_usage_is_a_failed_fetch(self):
+        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
+        with self.assertRaisesRegex(ValueError, "no recorded Muse run"):
+            muse.normalize(key)

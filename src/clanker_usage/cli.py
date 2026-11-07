@@ -54,7 +54,14 @@ def cached(provider, account):
 
 def fetch(provider, account):
     """Fetch live, save the document in the account's cache, and return it."""
-    record = document(provider, account, "live", provider.normalize(provider.fetch()), retrieved_at=now())
+    body = provider.normalize(provider.fetch())
+    # A provider may report a reading taken earlier, such as Muse Code's from a recorded run, which must
+    # not replace a newer reading.
+    taken = body.pop("retrieved_at", None)
+    previous = cached(provider, account)
+    if taken and previous and (previous.get("retrieved_at") or "") >= taken:
+        raise RuntimeError(f"No reading newer than the cached one from {previous['retrieved_at']}")
+    record = document(provider, account, "live", body, retrieved_at=taken or now())
     cache.write_json(paths.cache_file(provider.NAME, account), record)
     return record
 

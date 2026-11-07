@@ -5,13 +5,17 @@ of every model call. This provider makes the key call, which uses no quota. Chec
 with Muse 1.4.12: the call returns the API key already stored, and leaves Muse's login working.
 """
 
+import glob
 import hashlib
+import json
 import math
 import os
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import cache as files, http
+from .. import cache as files, http, paths
 
 NAME = "muse-code"
 LABEL = "Muse Code"
@@ -42,14 +46,83 @@ def account():
     return hashlib.sha256(source.encode()).hexdigest()[:16]
 
 
+# How far back to look for a recorded Muse run, and how much of each run's output to read: the usage
+# record is the output's last line.
+RUN_MAX_AGE = 7 * 86400
+RUN_TAIL = 1 << 16
+ALLOWANCE = re.compile(rb'"allowance"\s*:\s*\{"as_of_ms"')
+
+
+def run_files():
+    """The output files of recorded Muse runs, from globs added with configure --run-glob."""
+    found = []
+    for pattern in paths.config(NAME).get("run_globs", []):
+        found += glob.glob(os.path.expanduser(pattern))
+    return found
+
+
+def recorded_allowance():
+    """The newest usage that a Muse run recorded, as the `allowance` of `muse exec --json`'s run_usage record.
+
+    Muse sends usage at the end of every model call, and `muse exec --json` ends its output with the
+    last of them. Muse saves it nowhere else, but a tool that keeps the output, such as aop in each
+    run's events.jsonl, leaves it here to read without a model call.
+    """
+    cutoff = time.time() - RUN_MAX_AGE
+    newest = None
+    for name in run_files():
+        try:
+            if os.path.getmtime(name) < cutoff:
+                continue
+            with open(name, "rb") as stream:
+                stream.seek(max(0, os.path.getsize(name) - RUN_TAIL))
+                tail = stream.read()
+        except OSError:
+            continue
+        if not ALLOWANCE.search(tail):
+            continue
+        for line in reversed(tail.splitlines()):
+            if b'"allowance"' not in line:
+                continue
+            try:
+                allowance = _find_allowance(json.loads(line))
+            except ValueError:
+                continue
+            if allowance and (newest is None or allowance["as_of_ms"] > newest["as_of_ms"]):
+                newest = allowance
+            break
+    return newest
+
+
+def _find_allowance(value):
+    if isinstance(value, dict):
+        found = value.get("allowance")
+        if isinstance(found, dict) and isinstance(found.get("as_of_ms"), int):
+            return found
+        for item in value.values():
+            if found := _find_allowance(item):
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            if found := _find_allowance(item):
+                return found
+    return None
+
+
 def fetch():
-    """The subscription part of the key response; the key itself, names and payment details are left out."""
+    """The subscription part of the key response, and the newest run-recorded usage when it has none.
+
+    The key itself, names and payment details are left out.
+    """
     response = http.request_json(KEY_URL, {"Authorization": "Bearer " + login()["access_token"], "x-api-version": "1.0.0"},
                                  {"onboard": False})
     if not isinstance(response, dict):
         raise ValueError("Muse Code key response is not an object")
-    return {key: response[key] for key in ("is_subs_active", "subs_tier_name", "is_subs_upgrade_available", "subs_usage")
-            if key in response}
+    payload = {key: response[key] for key in ("is_subs_active", "subs_tier_name", "is_subs_upgrade_available", "subs_usage")
+               if key in response}
+    if "subs_usage" not in payload and (allowance := recorded_allowance()):
+        payload["run_allowance"] = allowance
+    return payload
 
 
 def percent(value):
@@ -72,8 +145,11 @@ def normalize(payload):
     if not payload.get("is_subs_active"):
         return {"plan": None, "windows": [], "details": {}}
     usage = payload.get("subs_usage")
+    retrieved_at = None
+    if usage is None and isinstance(payload.get("run_allowance"), dict):
+        usage, retrieved_at = _usage_from_allowance(payload["run_allowance"])
     if not isinstance(usage, dict):
-        raise ValueError("Muse Code's key response did not include usage")
+        raise ValueError("Muse Code's key response did not include usage, and no recorded Muse run has it")
     windows = []
     window = usage.get("window")
     if isinstance(window, dict):
@@ -97,4 +173,47 @@ def normalize(payload):
         for window in windows:
             window["used_pct"] = min(window["used_pct"], 100)
     plan = payload.get("subs_tier_name")
-    return {"plan": plan if isinstance(plan, str) and plan else None, "windows": windows, "details": details}
+    body = {"plan": plan if isinstance(plan, str) and plan else None, "windows": windows, "details": details}
+    if retrieved_at:
+        details["source"] = "recorded run"
+        body["retrieved_at"] = retrieved_at
+    return body
+
+
+def _usage_from_allowance(allowance):
+    """The key response's usage shape from a run's allowance, and when Muse observed it.
+
+    The allowance gives reset times in milliseconds and leaves out the short window's length, which
+    every observed usage event gives as 300 minutes.
+    """
+    as_of = allowance.get("as_of_ms")
+    if isinstance(as_of, bool) or not isinstance(as_of, int) or as_of <= 0:
+        raise ValueError("Invalid Muse Code run allowance: as_of_ms must be a time in milliseconds")
+    usage = {}
+    for key in ("window", "weekly"):
+        part = allowance.get(key)
+        if not isinstance(part, dict):
+            continue
+        resets = part.get("resets_at_ms")
+        if resets is not None and (isinstance(resets, bool) or not isinstance(resets, int | float)):
+            raise ValueError("Invalid Muse Code run allowance: resets_at_ms must be a time in milliseconds")
+        usage[key] = {"used_percent": part.get("used_percent"), "resets_at": resets / 1000 if resets is not None else None}
+    if "window" in usage:
+        usage["window"]["window_duration_mins"] = 300
+    return usage, datetime.fromtimestamp(as_of / 1000, timezone.utc).isoformat(timespec="seconds")
+
+
+def add_commands(sub):
+    configure = sub.add_parser("configure", help="Also read Muse usage that tools such as aop recorded from muse exec --json")
+    configure.add_argument("--run-glob", required=True,
+                           help="output files of recorded Muse runs, such as aop's ~/work/*/.aop/runs/*/events.jsonl")
+
+
+def run_command(args):
+    if args.command != "configure":
+        return False
+    section = paths.config(NAME)
+    section["run_globs"] = list(dict.fromkeys([*section.get("run_globs", []), args.run_glob]))
+    paths.set_config(NAME, section)
+    print(f"Configured {paths.config_file()}; {len(run_files())} run output files match")
+    return True
