@@ -24,6 +24,8 @@ DESCRIPTION = "Read Muse Code subscription limits with the login Muse Code alrea
 KEY_URL = "https://api.meta.ai/muse-code/key"
 INTERVAL = 300
 KEEP = frozenset({"is_subs_active", "is_subs_upgrade_available", "subs_tier_name", "window_duration_mins"})
+# Keys fetch() adds from local data rather than from Muse's response.
+DERIVED = frozenset({"run_allowance", "previous_reading"})
 
 
 def auth_file():
@@ -110,9 +112,11 @@ def _find_allowance(value):
 
 
 def fetch():
-    """The subscription part of the key response, and the newest run-recorded usage when it has none.
+    """The subscription part of the key response, and what fills in for its usage when it has none.
 
-    The key itself, names and payment details are left out.
+    The key itself, names and payment details are left out. Without usage in the response, the newest
+    run-recorded usage fills in when it is newer than the cached reading, and otherwise the cached
+    reading, for normalize() to carry forward.
     """
     response = http.request_json(KEY_URL, {"Authorization": "Bearer " + login()["access_token"], "x-api-version": "1.0.0"},
                                  {"onboard": False})
@@ -120,9 +124,21 @@ def fetch():
         raise ValueError("Muse Code key response is not an object")
     payload = {key: response[key] for key in ("is_subs_active", "subs_tier_name", "is_subs_upgrade_available", "subs_usage")
                if key in response}
-    if "subs_usage" not in payload and (allowance := recorded_allowance()):
+    if "subs_usage" in payload:
+        return payload
+    previous = files.read_json(paths.cache_file(NAME, account()))
+    taken = (previous or {}).get("retrieved_at") if (previous or {}).get("status") == "live" else None
+    allowance = recorded_allowance()
+    if allowance and (not taken or _iso_ms(allowance["as_of_ms"]) > taken):
         payload["run_allowance"] = allowance
+    elif taken:
+        payload["previous_reading"] = {"windows": previous["windows"],
+                                       "measured_at": (previous.get("details") or {}).get("carried_from") or taken}
     return payload
+
+
+def _iso_ms(ms):
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(timespec="seconds")
 
 
 def percent(value):
@@ -148,6 +164,8 @@ def normalize(payload):
     retrieved_at = None
     if usage is None and isinstance(payload.get("run_allowance"), dict):
         usage, retrieved_at = _usage_from_allowance(payload["run_allowance"])
+    if usage is None and isinstance(payload.get("previous_reading"), dict):
+        return _carry_forward(payload, payload["previous_reading"])
     if not isinstance(usage, dict):
         raise ValueError("Muse Code's key response did not include usage, and no recorded Muse run has it")
     windows = []
@@ -180,6 +198,37 @@ def normalize(payload):
     return body
 
 
+def _carry_forward(payload, previous):
+    """The usage implied by a key response without usage once the last known short window has reset.
+
+    Meta leaves usage out of the key response while no short window is open, that is, when nothing has
+    used Muse since the last window reset; Muse's own `muse usage` says the server "sent no usage data
+    ... before your first use in a new window". So the short window reads 0% and the weekly limit keeps
+    its last reading until it resets. While the last known short window is still open, the missing usage
+    is a failed fetch.
+    """
+    current = datetime.now(timezone.utc)
+    windows = []
+    for window in previous.get("windows") or []:
+        resets = window.get("resets_at")
+        reset = datetime.fromisoformat(resets) if resets else None
+        if window.get("seconds") != 7 * 86400:
+            if reset and reset > current:
+                raise ValueError("Muse Code's key response did not include usage while the last known "
+                                 f"{window.get('name')} window is open, until {resets}")
+            windows.append({**window, "used_pct": 0, "resets_at": None})
+        elif reset and reset > current:
+            windows.append(window)
+        else:
+            windows.append({**window, "used_pct": 0, "resets_at": None})
+    if not windows:
+        raise ValueError("Muse Code's key response did not include usage, and no earlier reading has it")
+    plan = payload.get("subs_tier_name")
+    return {"plan": plan if isinstance(plan, str) and plan else None, "windows": windows,
+            "details": {"upgrade_available": bool(payload.get("is_subs_upgrade_available")),
+                        "source": "no open window", "carried_from": previous.get("measured_at")}}
+
+
 def _usage_from_allowance(allowance):
     """The key response's usage shape from a run's allowance, and when Muse observed it.
 
@@ -200,7 +249,7 @@ def _usage_from_allowance(allowance):
         usage[key] = {"used_percent": part.get("used_percent"), "resets_at": resets / 1000 if resets is not None else None}
     if "window" in usage:
         usage["window"]["window_duration_mins"] = 300
-    return usage, datetime.fromtimestamp(as_of / 1000, timezone.utc).isoformat(timespec="seconds")
+    return usage, _iso_ms(as_of)
 
 
 def add_commands(sub):

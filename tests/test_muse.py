@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from clanker_usage import cache, cli, shapes
+from clanker_usage import cache, cli, paths, shapes
 from clanker_usage.providers import muse
 from test_zcode import Home
 
@@ -117,10 +117,57 @@ class RecordedRunTests(Home):
         with patch.object(muse.http, "request_json", return_value=key), redirect_stdout(io.StringIO()) as out:
             cli.run("muse-code", ["json"])
         document = json.loads(out.getvalue())
-        self.assertEqual(document["status"], "stale")
-        self.assertNotIn("source", document["details"])
+        self.assertNotEqual(document["details"].get("source"), "recorded run")
 
     def test_without_runs_a_missing_usage_is_a_failed_fetch(self):
         key = {k: v for k, v in KEY.items() if k != "subs_usage"}
         with self.assertRaisesRegex(ValueError, "no recorded Muse run"):
             muse.normalize(key)
+
+
+class NoOpenWindowTests(Home):
+    """A key response without usage after the last known short window reset carries the reading forward."""
+    sign_in = MuseTests.sign_in
+
+    def cache_reading(self, window_reset, weekly_reset):
+        cache.write_json(paths.cache_file("muse-code", muse.account()), {
+            "schema": cli.SCHEMA, "provider": "muse-code", "account": muse.account(), "plan": "Muse Code Power Usage",
+            "status": "live", "error": None, "retrieved_at": "2026-11-08T04:56:06+00:00", "balance": None, "details": {},
+            "windows": [{"name": "5-hour", "seconds": 18000, "scope": None, "used_pct": 83, "resets_at": window_reset},
+                        {"name": "weekly", "seconds": 604800, "scope": None, "used_pct": 27, "resets_at": weekly_reset}]})
+
+    def read(self):
+        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
+        with patch.object(muse.http, "request_json", return_value=key), redirect_stdout(io.StringIO()) as out:
+            cli.run("muse-code", ["json"])
+        return json.loads(out.getvalue())
+
+    def test_a_closed_window_reads_0_and_the_weekly_keeps_its_reading(self):
+        self.sign_in()
+        self.cache_reading("2000-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00")
+        document = self.read()
+        self.assertEqual(document["status"], "live")
+        self.assertEqual([(w["name"], w["used_pct"], w["resets_at"]) for w in document["windows"]],
+                         [("5-hour", 0, None), ("weekly", 27, "2999-01-01T00:00:00+00:00")])
+        self.assertEqual(document["details"]["source"], "no open window")
+        self.assertEqual(document["details"]["carried_from"], "2026-11-08T04:56:06+00:00")
+        self.assertEqual(self.read()["details"]["carried_from"], "2026-11-08T04:56:06+00:00")
+
+    def test_a_weekly_limit_past_its_reset_reads_0(self):
+        self.sign_in()
+        self.cache_reading("2000-01-01T00:00:00+00:00", "2000-01-02T00:00:00+00:00")
+        self.assertEqual([w["used_pct"] for w in self.read()["windows"]], [0, 0])
+
+    def test_missing_usage_while_the_window_is_open_is_a_failed_fetch(self):
+        self.sign_in()
+        self.cache_reading("2999-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00")
+        document = self.read()
+        self.assertEqual(document["status"], "stale")
+        self.assertIn("window is open", document["error"])
+
+    def test_check_compares_only_the_response(self):
+        self.sign_in()
+        self.cache_reading("2000-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00")
+        key = {k: v for k, v in KEY.items() if k != "subs_usage"}
+        with patch.object(muse.http, "request_json", return_value=key):
+            self.assertEqual(cli.check_one(cli.PROVIDERS["muse-code"])["result"], "ok")

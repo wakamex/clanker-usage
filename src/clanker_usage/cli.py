@@ -241,12 +241,14 @@ def check_one(provider, record_dir=None):
     state = {"checked_at": now(), "result": "ok", "details": [], "windows": previous.get("windows", [])}
     try:
         payload = provider.fetch()
+        # Compare only the provider's own response, not what fetch() added from local data.
+        response = {key: value for key, value in payload.items() if key not in getattr(provider, "DERIVED", ())}
         if record_dir:
             path = Path(record_dir) / f"{provider.NAME}-{datetime.now(timezone.utc):%Y-%m-%d}.json"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(shapes.synthetic(payload, provider.KEEP), indent=2, ensure_ascii=False) + "\n")
+            path.write_text(json.dumps(shapes.synthetic(response, provider.KEEP), indent=2, ensure_ascii=False) + "\n")
             state["details"].append(f"recorded {path}")
-        new = sorted(shapes.paths(payload) - shapes.known_paths(provider.NAME))
+        new = sorted(shapes.paths(response) - shapes.known_paths(provider.NAME))
         if new:
             state.update(result="new-shape")
             state["details"] += new
