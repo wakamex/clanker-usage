@@ -79,6 +79,14 @@ def backoff_seconds(failures):
     return min(60 * 2 ** (failures - 1), 1800)
 
 
+def record_failure(provider, account, error):
+    """Count a failed fetch in the account's backoff file, which a successful fetch removes."""
+    path = paths.backoff_file(provider.NAME, account)
+    failure = cache.read_json(path) or {}
+    failures = failure.get("failures") if isinstance(failure.get("failures"), int) else 0
+    cache.write_json(path, {"failed_at": now(), "failures": failures + 1, "error": error})
+
+
 def load(provider, max_age=0):
     """The provider's document: cached when younger than max_age, else live, else stale or unavailable.
 
@@ -104,7 +112,7 @@ def load(provider, max_age=0):
             return unavailable(provider, account, str(exc))
         except FETCH_ERRORS as exc:
             error = str(exc)
-            cache.write_json(backoff, {"failed_at": now(), "failures": failures + 1, "error": error})
+            record_failure(provider, account, error)
         else:
             backoff.unlink(missing_ok=True)
             return record
@@ -283,11 +291,13 @@ def daemon(provider, interval):
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     backoff = interval
     while True:
+        account = None
         try:
             account = provider.account()
             previous = cached(provider, account)
             if not (previous and cache.is_fresh(previous, interval)):
                 print(statusline(provider, fetch(provider, account)), flush=True)
+                paths.backoff_file(provider.NAME, account).unlink(missing_ok=True)
             backoff = interval
         except ExpectedUnavailable as exc:
             # Such as an account without a subscription, which an hour rarely changes.
@@ -295,6 +305,8 @@ def daemon(provider, interval):
             backoff = max(interval, 3600)
         except ERRORS as exc:
             print(str(exc), file=sys.stderr, flush=True)
+            if account is not None:
+                record_failure(provider, account, str(exc))
             backoff = min(backoff * 2, max(interval, 3600))
         time.sleep(backoff)
 

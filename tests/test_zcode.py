@@ -186,6 +186,24 @@ class StandardCommandTests(Home):
             with self.assertRaises(KeyboardInterrupt):
                 cli.daemon(zcode, 300)
 
+    def test_daemon_records_a_failed_fetch_until_one_succeeds(self):
+        backoff = cli.paths.backoff_file("zcode", zcode.account())
+        sleeps = iter([None, KeyboardInterrupt()])
+
+        def sleep(_):
+            if isinstance(step := next(sleeps), BaseException):
+                raise step
+
+        with patch.object(zcode, "fetch", side_effect=RuntimeError("HTTP 401")), patch.object(cli.time, "sleep", side_effect=sleep), \
+                patch.object(cli.signal, "signal"), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(KeyboardInterrupt):
+            cli.daemon(zcode, 300)
+        self.assertEqual({k: v for k, v in cli.cache.read_json(backoff).items() if k != "failed_at"},
+                         {"failures": 2, "error": "HTTP 401"})
+        with patch.object(zcode, "fetch", return_value=RESPONSE), patch.object(cli.time, "sleep", side_effect=KeyboardInterrupt), \
+                patch.object(cli.signal, "signal"), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+            cli.daemon(zcode, 300)
+        self.assertFalse(backoff.exists())
+
     def test_daemon_rejects_a_zero_interval(self):
         with self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
             cli.run("zcode", ["daemon", "--interval", "0"])
